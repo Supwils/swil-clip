@@ -1,0 +1,11 @@
+node_modules/
+dist/
+dist-electron/
+.env
+.env.*
+!.env.example
+*.log
+*.tsbuildinfo
+
+# Tauri
+src-tauri/target/
