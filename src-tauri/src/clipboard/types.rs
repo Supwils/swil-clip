@@ -7,7 +7,7 @@ pub enum ClipType {
     Image,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ClipItem {
     pub id: String,

@@ -37,15 +37,9 @@ pub fn save_history(app_handle: &AppHandle, items: &[ClipItem]) -> Result<(), St
 pub fn add_item(app_handle: &AppHandle, item: &ClipItem) -> Result<(), String> {
     let mut items = get_history(app_handle)?;
 
-    items.retain(|existing| {
-        !(existing.clip_type == item.clip_type && existing.content == item.content)
-    });
-
+    crate::store_logic::apply_dedup(&mut items, item);
     items.insert(0, item.clone());
-
-    if items.len() > MAX_HISTORY {
-        items.truncate(MAX_HISTORY);
-    }
+    crate::store_logic::enforce_max_history(&mut items, MAX_HISTORY);
 
     save_history(app_handle, &items)
 }

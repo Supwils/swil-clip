@@ -7,6 +7,7 @@ import {
   CommandGroup,
 } from "@/components/ui/command";
 import { ClipItem } from "@/components/ClipItem";
+import { SettingsDialog } from "@/components/SettingsDialog";
 import type { ClipItem as ClipItemType } from "@/types/clipboard";
 
 interface ClipboardPanelProps {
@@ -39,6 +40,11 @@ export function ClipboardPanel({
       className="flex h-full flex-col bg-transparent"
       loop
     >
+      <div className="flex items-center justify-between px-2 pt-2 pb-0.5">
+        <span className="text-xs font-medium text-foreground-subtle opacity-60">Clipboard</span>
+        <SettingsDialog />
+      </div>
+
       <CommandInput placeholder="Search clipboard..." autoFocus />
 
       <CommandList className="max-h-none flex-1 overflow-y-auto py-1">

@@ -1,7 +1,10 @@
 mod clipboard;
 mod commands;
+mod settings;
+mod shortcut_util;
 mod simulate;
 mod store;
+mod store_logic;
 mod tray;
 
 use tauri::Manager;
@@ -16,6 +19,8 @@ pub fn run() {
             commands::delete_item,
             commands::clear_history,
             commands::paste_item,
+            commands::get_settings,
+            commands::update_global_shortcut,
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {
@@ -47,10 +52,11 @@ pub fn run() {
             let monitor = clipboard::monitor::ClipboardMonitor::new();
             monitor.start(handle.clone());
 
-            let shortcut = Shortcut::new(
-                Some(Modifiers::SUPER | Modifiers::SHIFT),
-                Code::KeyV,
-            );
+            let stored_settings = settings::get_settings(&handle).unwrap_or_default();
+            let shortcut = shortcut_util::parse_shortcut(&stored_settings.global_shortcut)
+                .unwrap_or_else(|_| {
+                    Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::KeyV)
+                });
 
             let handle_for_shortcut = handle.clone();
             handle.plugin(
