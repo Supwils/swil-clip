@@ -1,11 +1,23 @@
 node_modules/
 dist/
 dist-electron/
+
 .env
 .env.*
 !.env.example
+
 *.log
 *.tsbuildinfo
+.DS_Store
+Thumbs.db
 
 # Tauri
 src-tauri/target/
+src-tauri/gen/schemas/
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+.cursor/

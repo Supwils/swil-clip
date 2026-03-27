@@ -12,8 +12,15 @@
     "core:window:allow-set-focus",
     "core:window:allow-set-position",
     "core:window:allow-set-size",
+    "core:window:allow-is-visible",
     "store:default",
     "global-shortcut:default",
-    "shell:default"
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister",
+    "shell:default",
+    "core:event:default",
+    "core:event:allow-listen",
+    "core:event:allow-emit",
+    "core:tray:default"
   ]
 }
