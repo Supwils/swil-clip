@@ -15,6 +15,8 @@ pub struct ClipItem {
     pub content: String,
     pub preview: String,
     pub timestamp: i64,
+    #[serde(default)]
+    pub pinned: bool,
     pub app_name: Option<String>,
     pub image_width: Option<u32>,
     pub image_height: Option<u32>,

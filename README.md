@@ -89,6 +89,22 @@ SwilClip requires **Accessibility** permission on macOS to simulate `Cmd+V` keys
 
 Tauri 2.0 (Rust) / React 19 / Vite 6 / TypeScript (strict) / Tailwind CSS 4 / shadcn/ui (cmdk) / tauri-plugin-store / tauri-plugin-global-shortcut
 
+## Usage
+
+This build has not been notarized by Apple; consequently, it may be blocked upon its initial launch.
+If you encounter a "damaged" warning, you can resolve it by executing the following command in the Terminal:
+
+### xattr -cr /Applications/SwilClip.app     check the path
+
+Then, attempt to open the application again.
+Note: If you build and install the application yourself directly from the source code using `pnpm tauri build`, you typically will not encounter the "downloaded from the Internet" quarantine issues (though permissions related to Accessibility and similar features may still be required).
+
+本构建未经过 Apple 公证，首次运行可能被拦截。
+若提示「已损坏」，可在终端执行：
+xattr -cr /Applications/SwilClip.app
+请检查路径是否正确, 然后再打开。
+或说明：从源码自行 pnpm tauri build 安装通常不会有「从网上下载」的隔离问题（仍可能涉及辅助功能等权限）。
+
 ## License
 
 MIT

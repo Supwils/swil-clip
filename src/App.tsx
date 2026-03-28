@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ClipboardPanel } from "@/components/ClipboardPanel";
 import { useClipboardHistory } from "@/hooks/useClipboardHistory";
@@ -8,7 +8,8 @@ import { QUICK_PASTE_LIMIT } from "@/constants";
 
 export function App(): React.ReactElement {
   const { items, refresh } = useClipboardHistory();
-  const { pasteItem, deleteItem } = useClipboardActions(refresh);
+  const { pasteItem, deleteItem, clearAll, pinItem } = useClipboardActions(refresh);
+  const [showCount, setShowCount] = useState(0);
 
   const handlePaste = useCallback(
     (item: ClipItem) => {
@@ -50,7 +51,10 @@ export function App(): React.ReactElement {
   useEffect(() => {
     const appWindow = getCurrentWindow();
     const unlisten = appWindow.onFocusChanged(({ payload: focused }) => {
-      if (!focused) {
+      if (focused) {
+        setShowCount((c) => c + 1);
+        refresh();
+      } else {
         appWindow.hide();
       }
     });
@@ -58,14 +62,17 @@ export function App(): React.ReactElement {
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, []);
+  }, [refresh]);
 
   return (
     <div className="app-shell">
       <ClipboardPanel
+        key={showCount}
         items={items}
         onPaste={handlePaste}
         onDelete={handleDelete}
+        onClearAll={clearAll}
+        onPin={pinItem}
       />
     </div>
   );

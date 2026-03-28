@@ -7,6 +7,7 @@ interface UseClipboardActionsReturn {
   pasteItem: (item: ClipItem) => Promise<void>;
   deleteItem: (id: string) => Promise<void>;
   clearAll: () => Promise<void>;
+  pinItem: (id: string, pinned: boolean) => Promise<void>;
 }
 
 export function useClipboardActions(
@@ -49,5 +50,19 @@ export function useClipboardActions(
     }
   }, [onHistoryChanged]);
 
-  return { pasteItem, deleteItem, clearAll };
+  const pinItem = useCallback(
+    async (id: string, pinned: boolean) => {
+      try {
+        await invoke("pin_item", { id, pinned });
+        await onHistoryChanged();
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Pin failed";
+        console.error("Failed to pin item:", message);
+      }
+    },
+    [onHistoryChanged],
+  );
+
+  return { pasteItem, deleteItem, clearAll, pinItem };
 }

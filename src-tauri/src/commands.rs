@@ -1,4 +1,4 @@
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 use crate::clipboard::types::ClipItem;
@@ -28,9 +28,18 @@ pub fn paste_item(app_handle: AppHandle, id: String) -> Result<(), String> {
         .find(|i| i.id == id)
         .ok_or_else(|| "Item not found".to_string())?;
 
+    app_handle
+        .state::<crate::focus_target::PasteTargetStore>()
+        .activate_stored_before_paste();
+
     crate::simulate::write_and_paste(&item)?;
 
     Ok(())
+}
+
+#[tauri::command]
+pub fn pin_item(app_handle: AppHandle, id: String, pinned: bool) -> Result<(), String> {
+    store::pin_item(&app_handle, &id, pinned)
 }
 
 #[tauri::command]

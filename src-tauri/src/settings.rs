@@ -7,14 +7,24 @@ const SETTINGS_KEY: &str = "settings";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct WindowPosition {
+    pub x: i32,
+    pub y: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     pub global_shortcut: String,
+    #[serde(default)]
+    pub window_position: Option<WindowPosition>,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
         AppSettings {
             global_shortcut: "cmd+shift+v".to_string(),
+            window_position: None,
         }
     }
 }

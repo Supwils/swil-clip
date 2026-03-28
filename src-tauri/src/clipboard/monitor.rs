@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -92,6 +94,7 @@ impl ClipboardMonitor {
                             content: text,
                             preview,
                             timestamp: now,
+                            pinned: false,
                             app_name: None,
                             image_width: None,
                             image_height: None,
@@ -134,6 +137,7 @@ impl ClipboardMonitor {
                         content: b64,
                         preview: format!("Image ({})", img_format),
                         timestamp: now,
+                        pinned: false,
                         app_name: None,
                         image_width: None,
                         image_height: None,

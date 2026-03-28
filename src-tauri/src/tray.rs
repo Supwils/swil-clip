@@ -4,6 +4,8 @@ use tauri::{
     AppHandle, Manager,
 };
 
+use crate::focus_target::PasteTargetStore;
+
 pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let show = MenuItem::with_id(app, "show", "Show SwilClip", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
@@ -18,6 +20,7 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
             match event.id().as_ref() {
                 "show" => {
                     if let Some(window) = app_handle.get_webview_window("main") {
+                        app_handle.state::<PasteTargetStore>().capture_frontmost();
                         let _ = window.show();
                         let _ = window.set_focus();
                     }
@@ -36,6 +39,7 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
             } = event
             {
                 if let Some(window) = handle.get_webview_window("main") {
+                    handle.state::<PasteTargetStore>().capture_frontmost();
                     let _ = window.show();
                     let _ = window.set_focus();
                 }

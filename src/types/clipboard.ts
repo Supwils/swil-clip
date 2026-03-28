@@ -6,6 +6,7 @@ export interface ClipItem {
   content: string;
   preview: string;
   timestamp: number;
+  pinned?: boolean;
   appName?: string;
   imageWidth?: number;
   imageHeight?: number;

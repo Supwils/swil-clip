@@ -121,11 +121,16 @@ function ShortcutRecorder({ current, onRecord }: ShortcutRecorderProps): React.R
   );
 }
 
-export function SettingsDialog(): React.ReactElement {
+interface SettingsDialogProps {
+  onClearAll: () => Promise<void>;
+}
+
+export function SettingsDialog({ onClearAll }: SettingsDialogProps): React.ReactElement {
   const { settings, isLoading, updateGlobalShortcut } = useSettings();
   const [pendingShortcut, setPendingShortcut] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmingClear, setConfirmingClear] = useState(false);
 
   const displayShortcut = pendingShortcut ?? settings.globalShortcut;
 
@@ -147,8 +152,14 @@ export function SettingsDialog(): React.ReactElement {
     if (!open) {
       setPendingShortcut(null);
       setError(null);
+      setConfirmingClear(false);
     }
   }, []);
+
+  const handleClearConfirm = useCallback(async () => {
+    await onClearAll();
+    setConfirmingClear(false);
+  }, [onClearAll]);
 
   return (
     <Dialog onOpenChange={handleOpenChange}>
@@ -170,7 +181,7 @@ export function SettingsDialog(): React.ReactElement {
           <DialogTitle>Settings</DialogTitle>
         </DialogHeader>
 
-        <div className="flex flex-col gap-3 py-1">
+        <div className="flex flex-col gap-4 py-1">
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-foreground-subtle">
               Global Shortcut
@@ -186,6 +197,43 @@ export function SettingsDialog(): React.ReactElement {
             </p>
             {error && (
               <p className="text-xs text-red-400">{error}</p>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-1.5 border-t border-border/40 pt-3">
+            <label className="text-xs font-medium text-foreground-subtle">
+              History
+            </label>
+            {confirmingClear ? (
+              <div className="flex items-center gap-2">
+                <span className="flex-1 text-xs text-foreground-subtle">
+                  Clear all clipboard history?
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setConfirmingClear(false)}
+                  className="h-7 text-xs"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => void handleClearConfirm()}
+                  className="h-7 bg-destructive/80 text-xs text-white hover:bg-destructive"
+                >
+                  Clear
+                </Button>
+              </div>
+            ) : (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setConfirmingClear(true)}
+                className="h-7 w-fit text-xs text-destructive/70 hover:bg-destructive/10 hover:text-destructive"
+              >
+                Clear History
+              </Button>
             )}
           </div>
         </div>

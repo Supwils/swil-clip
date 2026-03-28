@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use crate::clipboard::types::{ClipItem, ClipType};
 
 #[cfg(target_os = "macos")]
