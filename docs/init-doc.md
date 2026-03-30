@@ -136,3 +136,7 @@ swil-clip/
 3. **Phase 3 - Rust 剪贴板后端:** NSPasteboard 轮询，tauri-plugin-store 持久化，系统托盘，全局快捷键。
 4. **Phase 4 - 前后端集成:** React Hooks + Tauri IPC，键盘导航，搜索过滤，窗口自动隐藏。
 5. **Phase 5 - Paste-Back 闭环:** CGEvent 模拟 Cmd+V，光标位置定位窗口，动画润色。
+
+## 9. 版本规划（v0 / v1）
+
+当前已实现能力汇总为 **v0**，下一阶段目标与优化方向见 **[version-roadmap.md](./version-roadmap.md)**（以仓库代码为 v0 事实来源，文档随发布更新）。

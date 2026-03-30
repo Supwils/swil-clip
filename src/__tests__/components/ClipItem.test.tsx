@@ -30,16 +30,20 @@ const imageItem: ClipItemType = {
 describe("ClipItem", () => {
   const onSelect = vi.fn();
   const onDelete = vi.fn();
+  const onPin = vi.fn();
+  const onToggleExpand = vi.fn();
 
   beforeEach(() => {
     onSelect.mockClear();
     onDelete.mockClear();
+    onPin.mockClear();
+    onToggleExpand.mockClear();
   });
 
   it("renders text item preview", () => {
     render(
       <Wrapper>
-        <ClipItem item={textItem} index={0} onSelect={onSelect} onDelete={onDelete} />
+        <ClipItem item={textItem} index={0} onSelect={onSelect} onDelete={onDelete} onPin={onPin} isExpanded={false} onToggleExpand={onToggleExpand} />
       </Wrapper>,
     );
     expect(screen.getByText("Hello clipboard")).toBeInTheDocument();
@@ -48,7 +52,7 @@ describe("ClipItem", () => {
   it("shows ⌥1 shortcut badge for index 0", () => {
     render(
       <Wrapper>
-        <ClipItem item={textItem} index={0} onSelect={onSelect} onDelete={onDelete} />
+        <ClipItem item={textItem} index={0} onSelect={onSelect} onDelete={onDelete} onPin={onPin} isExpanded={false} onToggleExpand={onToggleExpand} />
       </Wrapper>,
     );
     expect(screen.getByText("⌥")).toBeInTheDocument();
@@ -58,7 +62,7 @@ describe("ClipItem", () => {
   it("shows ⌥9 shortcut badge for index 8 (last shortcut)", () => {
     render(
       <Wrapper>
-        <ClipItem item={textItem} index={8} onSelect={onSelect} onDelete={onDelete} />
+        <ClipItem item={textItem} index={8} onSelect={onSelect} onDelete={onDelete} onPin={onPin} isExpanded={false} onToggleExpand={onToggleExpand} />
       </Wrapper>,
     );
     expect(screen.getByText("9")).toBeInTheDocument();
@@ -67,7 +71,7 @@ describe("ClipItem", () => {
   it("does not show shortcut badge for index 9 (beyond QUICK_PASTE_LIMIT)", () => {
     render(
       <Wrapper>
-        <ClipItem item={textItem} index={9} onSelect={onSelect} onDelete={onDelete} />
+        <ClipItem item={textItem} index={9} onSelect={onSelect} onDelete={onDelete} onPin={onPin} isExpanded={false} onToggleExpand={onToggleExpand} />
       </Wrapper>,
     );
     // index 9 → shortcutIndex 10, beyond limit of 9
@@ -78,7 +82,7 @@ describe("ClipItem", () => {
   it("renders image item with img element", () => {
     render(
       <Wrapper>
-        <ClipItem item={imageItem} index={0} onSelect={onSelect} onDelete={onDelete} />
+        <ClipItem item={imageItem} index={0} onSelect={onSelect} onDelete={onDelete} onPin={onPin} isExpanded={false} onToggleExpand={onToggleExpand} />
       </Wrapper>,
     );
     const img = screen.getByAltText("clipboard image");
@@ -92,16 +96,16 @@ describe("ClipItem", () => {
   it("shows image dimensions for image type", () => {
     render(
       <Wrapper>
-        <ClipItem item={imageItem} index={0} onSelect={onSelect} onDelete={onDelete} />
+        <ClipItem item={imageItem} index={0} onSelect={onSelect} onDelete={onDelete} onPin={onPin} isExpanded={false} onToggleExpand={onToggleExpand} />
       </Wrapper>,
     );
-    expect(screen.getByText("800x600 PNG")).toBeInTheDocument();
+    expect(screen.getByText("800×600 PNG")).toBeInTheDocument();
   });
 
   it("renders delete button", () => {
     render(
       <Wrapper>
-        <ClipItem item={textItem} index={0} onSelect={onSelect} onDelete={onDelete} />
+        <ClipItem item={textItem} index={0} onSelect={onSelect} onDelete={onDelete} onPin={onPin} isExpanded={false} onToggleExpand={onToggleExpand} />
       </Wrapper>,
     );
     expect(screen.getByRole("button", { name: "Delete item" })).toBeInTheDocument();

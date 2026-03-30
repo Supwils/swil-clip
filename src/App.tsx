@@ -25,13 +25,12 @@ export function App(): React.ReactElement {
     [deleteItem],
   );
 
+  const handleHide = useCallback(() => {
+    getCurrentWindow().hide();
+  }, []);
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        getCurrentWindow().hide();
-        return;
-      }
-
       if (event.altKey && !event.metaKey && !event.shiftKey && !event.ctrlKey) {
         const num = parseInt(event.key, 10);
         if (num >= 1 && num <= QUICK_PASTE_LIMIT) {
@@ -73,6 +72,7 @@ export function App(): React.ReactElement {
         onDelete={handleDelete}
         onClearAll={clearAll}
         onPin={pinItem}
+        onHide={handleHide}
       />
     </div>
   );

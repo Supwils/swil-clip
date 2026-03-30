@@ -47,7 +47,18 @@ export function useClipboardHistory(): UseClipboardHistoryReturn {
               existing.content === event.payload.content
             ),
         );
-        const updated = [event.payload, ...filtered];
+        // Preserve pin state if the incoming item was previously pinned in the list.
+        const wasPayloadPinned = prev.find(
+          (e) =>
+            e.clipType === event.payload.clipType &&
+            e.content === event.payload.content,
+        )?.pinned ?? false;
+        const incomingItem = wasPayloadPinned
+          ? { ...event.payload, pinned: true }
+          : event.payload;
+        const updated = [incomingItem, ...filtered];
+        // Re-sort so pinned items always stay at the top, matching Rust get_history order.
+        updated.sort((a, b) => Number(b.pinned ?? false) - Number(a.pinned ?? false));
         return updated.slice(0, MAX_HISTORY);
       });
     });

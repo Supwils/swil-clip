@@ -20,6 +20,9 @@ describe("ClipboardPanel", () => {
         items={items}
         onPaste={vi.fn()}
         onDelete={vi.fn()}
+        onClearAll={vi.fn()}
+        onPin={vi.fn()}
+        onHide={vi.fn()}
       />,
     );
 
@@ -34,6 +37,9 @@ describe("ClipboardPanel", () => {
         items={items}
         onPaste={vi.fn()}
         onDelete={vi.fn()}
+        onClearAll={vi.fn()}
+        onPin={vi.fn()}
+        onHide={vi.fn()}
       />,
     );
 
