@@ -25,8 +25,13 @@ pub fn run() {
             commands::clear_history,
             commands::paste_item,
             commands::pin_item,
+            commands::clear_unpinned,
+            commands::restore_items,
             commands::get_settings,
             commands::update_global_shortcut,
+            commands::update_max_history,
+            commands::update_auto_paste,
+            commands::reorder_items,
         ])
         .setup(|app| {
             app.manage(focus_target::PasteTargetStore::default());
@@ -131,13 +136,6 @@ pub fn run() {
             )?;
 
             app.global_shortcut().register(shortcut).ok();
-
-            let window = app
-                .get_webview_window("main")
-                .expect("failed to get main window");
-            show_window(&handle, &window);
-            let _ = window.show();
-            let _ = window.set_focus();
 
             Ok(())
         })

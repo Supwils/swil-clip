@@ -43,11 +43,16 @@ impl ClipboardMonitor {
         use std::ffi::CStr;
 
         unsafe {
+            // Autorelease pool: drains all ObjC autoreleased objects (NSString, etc.)
+            // created in this poll cycle, preventing accumulation over the 500ms loop.
+            let pool: id = msg_send![objc::class!(NSAutoreleasePool), new];
+
             let pasteboard: id = NSPasteboard::generalPasteboard(nil);
             let change_count = pasteboard.changeCount();
 
             let mut last = last_change_count.lock().unwrap_or_else(|e| e.into_inner());
             if change_count == *last {
+                let _: () = msg_send![pool, release];
                 return;
             }
             *last = change_count;
@@ -55,6 +60,7 @@ impl ClipboardMonitor {
 
             let types: id = pasteboard.types();
             if types == nil {
+                let _: () = msg_send![pool, release];
                 return;
             }
 
@@ -152,6 +158,8 @@ impl ClipboardMonitor {
                     }
                 }
             }
+
+            let _: () = msg_send![pool, release];
         }
     }
 

@@ -30,7 +30,7 @@ impl PasteTargetStore {
                 let self_pid = std::process::id() as i32;
                 if pid != self_pid {
                     let _ = macos::activate_pid(pid);
-                    std::thread::sleep(Duration::from_millis(50));
+                    std::thread::sleep(Duration::from_millis(100));
                 }
             }
         }

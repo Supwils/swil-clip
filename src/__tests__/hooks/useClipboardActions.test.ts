@@ -1,4 +1,4 @@
-import { renderHook, act } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useClipboardActions } from "@/hooks/useClipboardActions";
@@ -37,7 +37,7 @@ describe("useClipboardActions", () => {
     const { result } = renderHook(() => useClipboardActions(onHistoryChanged));
 
     await act(async () => {
-      await result.current.pasteItem(mockItem);
+      await expect(result.current.pasteItem(mockItem)).resolves.toBe(true);
     });
 
     expect(mockHide).toHaveBeenCalledOnce();
@@ -48,7 +48,7 @@ describe("useClipboardActions", () => {
     const { result } = renderHook(() => useClipboardActions(onHistoryChanged));
 
     await act(async () => {
-      await result.current.deleteItem("abc-123");
+      await expect(result.current.deleteItem("abc-123")).resolves.toBe(true);
     });
 
     expect(invoke).toHaveBeenCalledWith("delete_item", { id: "abc-123" });
@@ -59,22 +59,56 @@ describe("useClipboardActions", () => {
     const { result } = renderHook(() => useClipboardActions(onHistoryChanged));
 
     await act(async () => {
-      await result.current.clearAll();
+      await expect(result.current.clearAll()).resolves.toBe(true);
     });
 
     expect(invoke).toHaveBeenCalledWith("clear_history");
     expect(onHistoryChanged).toHaveBeenCalledOnce();
   });
 
-  it("does not throw when invoke fails on pasteItem", async () => {
+  it("returns false when invoke fails on pasteItem", async () => {
     vi.mocked(invoke).mockRejectedValueOnce(new Error("paste error"));
 
     const { result } = renderHook(() => useClipboardActions(onHistoryChanged));
 
-    await expect(
-      act(async () => {
-        await result.current.pasteItem(mockItem);
-      }),
-    ).resolves.not.toThrow();
+    await act(async () => {
+      await expect(result.current.pasteItem(mockItem)).resolves.toBe(false);
+    });
+  });
+
+  it("rejects overlapping actions while one mutation is still running", async () => {
+    let resolveDelete: (() => void) | undefined;
+    vi.mocked(invoke).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveDelete = resolve;
+        }),
+    );
+
+    const { result } = renderHook(() => useClipboardActions(onHistoryChanged));
+
+    let firstDeletePromise: Promise<boolean> | undefined;
+
+    act(() => {
+      firstDeletePromise = result.current.deleteItem("abc-123");
+    });
+
+    expect(result.current.isBusy).toBe(true);
+
+    await act(async () => {
+      await expect(result.current.pinItem("abc-123", true)).resolves.toBe(false);
+    });
+
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(onHistoryChanged).not.toHaveBeenCalled();
+
+    resolveDelete?.();
+
+    await act(async () => {
+      await expect(firstDeletePromise).resolves.toBe(true);
+    });
+
+    expect(result.current.isBusy).toBe(false);
+    expect(onHistoryChanged).toHaveBeenCalledOnce();
   });
 });

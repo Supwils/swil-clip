@@ -28,11 +28,23 @@ pub fn paste_item(app_handle: AppHandle, id: String) -> Result<(), String> {
         .find(|i| i.id == id)
         .ok_or_else(|| "Item not found".to_string())?;
 
-    app_handle
-        .state::<crate::focus_target::PasteTargetStore>()
-        .activate_stored_before_paste();
+    let auto_paste = crate::settings::get_settings(&app_handle)
+        .map(|s| s.auto_paste)
+        .unwrap_or(false);
 
-    crate::simulate::write_and_paste(&item)?;
+    if auto_paste {
+        // Re-activate the previously frontmost app so Cmd+V lands in the
+        // right place, then write+paste.
+        app_handle
+            .state::<crate::focus_target::PasteTargetStore>()
+            .activate_stored_before_paste();
+        crate::simulate::write_and_paste(&item)?;
+    } else {
+        // Manual mode: just put the content on the clipboard. The frontend
+        // has already hidden the window, so focus returns naturally to the
+        // user's prior app; they press ⌘V themselves.
+        crate::simulate::write_only(&item)?;
+    }
 
     Ok(())
 }
@@ -43,8 +55,47 @@ pub fn pin_item(app_handle: AppHandle, id: String, pinned: bool) -> Result<(), S
 }
 
 #[tauri::command]
+pub fn clear_unpinned(app_handle: AppHandle) -> Result<Vec<ClipItem>, String> {
+    store::clear_unpinned(&app_handle)
+}
+
+#[tauri::command]
+pub fn restore_items(app_handle: AppHandle, items: Vec<ClipItem>) -> Result<(), String> {
+    store::restore_items(&app_handle, &items)
+}
+
+#[tauri::command]
 pub fn get_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
     crate::settings::get_settings(&app_handle)
+}
+
+#[tauri::command]
+pub fn reorder_items(
+    app_handle: AppHandle,
+    ordered_ids: Vec<String>,
+    pinned_ids: Option<Vec<String>>,
+) -> Result<(), String> {
+    store::reorder_items(&app_handle, &ordered_ids, pinned_ids.as_deref())
+}
+
+#[tauri::command]
+pub fn update_auto_paste(app_handle: AppHandle, value: bool) -> Result<bool, String> {
+    let mut current = crate::settings::get_settings(&app_handle)?;
+    current.auto_paste = value;
+    crate::settings::save_settings(&app_handle, &current)?;
+    Ok(value)
+}
+
+#[tauri::command]
+pub fn update_max_history(app_handle: AppHandle, value: usize) -> Result<usize, String> {
+    let clamped = crate::settings::clamp_max_history(value);
+    let mut current = crate::settings::get_settings(&app_handle)?;
+    current.max_history = clamped;
+    crate::settings::save_settings(&app_handle, &current)?;
+    // Apply immediately so the user sees the truncation without waiting for a
+    // new clip to come in.
+    store::truncate_history(&app_handle, clamped)?;
+    Ok(clamped)
 }
 
 #[tauri::command]

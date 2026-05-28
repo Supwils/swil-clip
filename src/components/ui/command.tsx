@@ -69,18 +69,18 @@ function CommandInput({
   ...props
 }: React.ComponentProps<typeof CommandPrimitive.Input>) {
   return (
-    <div data-slot="command-input-wrapper" className="p-1 pb-0">
-      <InputGroup className="h-8! rounded-lg! border-input/30 bg-input/30 shadow-none! *:data-[slot=input-group-addon]:pl-2!">
+    <div data-slot="command-input-wrapper" className="pb-1.5">
+      <InputGroup className="h-8! rounded-lg! border-border-subtle bg-surface-sunk shadow-none! transition-colors *:data-[slot=input-group-addon]:pl-2.5! has-[input:focus]:border-accent/40 has-[input:focus]:ring-1 has-[input:focus]:ring-accent/20">
         <CommandPrimitive.Input
           data-slot="command-input"
           className={cn(
-            "w-full text-sm outline-hidden disabled:cursor-not-allowed disabled:opacity-50",
+            "w-full text-[13px] placeholder:text-foreground-faint outline-hidden disabled:cursor-not-allowed disabled:opacity-50",
             className
           )}
           {...props}
         />
         <InputGroupAddon>
-          <SearchIcon className="size-4 shrink-0 opacity-50" />
+          <SearchIcon className="size-3.5 shrink-0 text-foreground-faint" />
         </InputGroupAddon>
       </InputGroup>
     </div>
@@ -95,7 +95,7 @@ function CommandList({
     <CommandPrimitive.List
       data-slot="command-list"
       className={cn(
-        "no-scrollbar max-h-72 scroll-py-1 overflow-x-hidden overflow-y-auto outline-none",
+        "scroll-py-2 overflow-x-hidden overflow-y-auto outline-none",
         className
       )}
       {...props}
@@ -123,10 +123,7 @@ function CommandGroup({
   return (
     <CommandPrimitive.Group
       data-slot="command-group"
-      className={cn(
-        "overflow-hidden p-1 text-foreground **:[[cmdk-group-heading]]:px-2 **:[[cmdk-group-heading]]:py-1.5 **:[[cmdk-group-heading]]:text-xs **:[[cmdk-group-heading]]:font-medium **:[[cmdk-group-heading]]:text-muted-foreground",
-        className
-      )}
+      className={cn("overflow-hidden text-foreground", className)}
       {...props}
     />
   )

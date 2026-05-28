@@ -1,15 +1,17 @@
 use tauri::{
-    menu::{Menu, MenuItem},
+    menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager,
+    AppHandle, Emitter, Manager,
 };
 
 use crate::focus_target::PasteTargetStore;
 
 pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
-    let show = MenuItem::with_id(app, "show", "Show SwilClip", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &quit])?;
+    let show = MenuItem::with_id(app, "show", "Show SwilClip", true, Some("Cmd+Shift+V"))?;
+    let settings = MenuItem::with_id(app, "settings", "Settings…", true, Some("Cmd+,"))?;
+    let separator = PredefinedMenuItem::separator(app)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit SwilClip", true, Some("Cmd+Q"))?;
+    let menu = Menu::with_items(app, &[&show, &settings, &separator, &quit])?;
 
     let handle = app.clone();
     TrayIconBuilder::new()
@@ -19,11 +21,12 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         .on_menu_event(move |app_handle: &AppHandle, event| {
             match event.id().as_ref() {
                 "show" => {
-                    if let Some(window) = app_handle.get_webview_window("main") {
-                        app_handle.state::<PasteTargetStore>().capture_frontmost();
-                        let _ = window.show();
-                        let _ = window.set_focus();
-                    }
+                    show_panel(app_handle);
+                }
+                "settings" => {
+                    show_panel(app_handle);
+                    // Frontend listens for this and opens the Settings dialog.
+                    let _ = app_handle.emit("open-settings", ());
                 }
                 "quit" => {
                     app_handle.exit(0);
@@ -38,14 +41,18 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                 ..
             } = event
             {
-                if let Some(window) = handle.get_webview_window("main") {
-                    handle.state::<PasteTargetStore>().capture_frontmost();
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
+                show_panel(&handle);
             }
         })
         .build(app)?;
 
     Ok(())
+}
+
+fn show_panel(app_handle: &AppHandle) {
+    if let Some(window) = app_handle.get_webview_window("main") {
+        app_handle.state::<PasteTargetStore>().capture_frontmost();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
 }

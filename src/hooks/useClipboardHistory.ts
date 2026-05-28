@@ -10,7 +10,13 @@ interface UseClipboardHistoryReturn {
   refresh: () => Promise<void>;
 }
 
-export function useClipboardHistory(): UseClipboardHistoryReturn {
+/**
+ * @param maxHistory   Soft cap applied on the live-event path. Backend already
+ *                     enforces the persisted cap; this is a defensive slice
+ *                     against ultra-fast burst copies arriving before the
+ *                     backend's truncate completes.
+ */
+export function useClipboardHistory(maxHistory: number = MAX_HISTORY): UseClipboardHistoryReturn {
   const [items, setItems] = useState<ClipItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const isMountedRef = useRef(true);
@@ -59,7 +65,7 @@ export function useClipboardHistory(): UseClipboardHistoryReturn {
         const updated = [incomingItem, ...filtered];
         // Re-sort so pinned items always stay at the top, matching Rust get_history order.
         updated.sort((a, b) => Number(b.pinned ?? false) - Number(a.pinned ?? false));
-        return updated.slice(0, MAX_HISTORY);
+        return updated.slice(0, maxHistory);
       });
     });
 
@@ -67,7 +73,7 @@ export function useClipboardHistory(): UseClipboardHistoryReturn {
       isMountedRef.current = false;
       unlisten.then((fn) => fn());
     };
-  }, [fetchHistory]);
+  }, [fetchHistory, maxHistory]);
 
   return { items, isLoading, refresh: fetchHistory };
 }

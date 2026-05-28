@@ -7,6 +7,8 @@ interface UseSettingsReturn {
   settings: AppSettings;
   isLoading: boolean;
   updateGlobalShortcut: (shortcut: string) => Promise<void>;
+  updateMaxHistory: (value: number) => Promise<void>;
+  updateAutoPaste: (value: boolean) => Promise<void>;
 }
 
 export function useSettings(): UseSettingsReturn {
@@ -34,5 +36,22 @@ export function useSettings(): UseSettingsReturn {
     setSettings((prev) => ({ ...prev, globalShortcut: shortcut }));
   }, []);
 
-  return { settings, isLoading, updateGlobalShortcut };
+  const updateMaxHistory = useCallback(async (value: number) => {
+    // Backend clamps to [10, 1000] and returns the effective value.
+    const effective = await invoke<number>("update_max_history", { value });
+    setSettings((prev) => ({ ...prev, maxHistory: effective }));
+  }, []);
+
+  const updateAutoPaste = useCallback(async (value: boolean) => {
+    const effective = await invoke<boolean>("update_auto_paste", { value });
+    setSettings((prev) => ({ ...prev, autoPaste: effective }));
+  }, []);
+
+  return {
+    settings,
+    isLoading,
+    updateGlobalShortcut,
+    updateMaxHistory,
+    updateAutoPaste,
+  };
 }

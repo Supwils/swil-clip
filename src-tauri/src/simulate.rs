@@ -15,6 +15,19 @@ pub fn write_and_paste(_item: &ClipItem) -> Result<(), String> {
     Err("Paste simulation only supported on macOS".to_string())
 }
 
+/// Write the clip's payload to the system clipboard WITHOUT simulating Cmd+V.
+/// Used when the user has auto-paste disabled — they hit Enter, we put the
+/// content on the clipboard, and they paste manually wherever they want.
+#[cfg(target_os = "macos")]
+pub fn write_only(item: &ClipItem) -> Result<(), String> {
+    write_to_clipboard(item)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn write_only(_item: &ClipItem) -> Result<(), String> {
+    Err("Clipboard write only supported on macOS".to_string())
+}
+
 #[cfg(target_os = "macos")]
 fn write_to_clipboard(item: &ClipItem) -> Result<(), String> {
     use cocoa::appkit::NSPasteboard;

@@ -1,7 +1,17 @@
-import { render, screen } from "@testing-library/react";
+import { useState, type ComponentProps, type ReactElement } from "react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { ClipboardPanel } from "@/components/ClipboardPanel";
 import type { ClipItem } from "@/types/clipboard";
 import { PANEL_DRAG_REGION_HEIGHT_PX } from "@/constants";
+
+vi.mock("@/hooks/useSettings", () => ({
+  useSettings: () => ({
+    settings: { globalShortcut: "cmd+shift+v" },
+    isLoading: false,
+    updateGlobalShortcut: vi.fn().mockResolvedValue(undefined),
+  }),
+}));
 
 const items: ClipItem[] = [
   {
@@ -11,20 +21,70 @@ const items: ClipItem[] = [
     preview: "hello",
     timestamp: 1700000000000,
   },
+  {
+    id: "clip-2",
+    clipType: "text",
+    content: "world",
+    preview: "world",
+    timestamp: 1700000001000,
+  },
+  {
+    id: "clip-3",
+    clipType: "text",
+    content: "third item",
+    preview: "third item",
+    timestamp: 1700000002000,
+  },
 ];
+
+function getCommandRoot(container: HTMLElement): HTMLElement {
+  const root = container.querySelector("[cmdk-root]");
+  if (!(root instanceof HTMLElement)) {
+    throw new Error("Command root not found");
+  }
+  return root;
+}
+
+function getSelectedItem(container: HTMLElement): HTMLElement {
+  const item = container.querySelector('[cmdk-item][aria-selected="true"]');
+  if (!(item instanceof HTMLElement)) {
+    throw new Error("Selected item not found");
+  }
+  return item;
+}
+
+function renderPanel(overrides: Partial<ComponentProps<typeof ClipboardPanel>> = {}) {
+  const onPaste = vi.fn().mockResolvedValue(true);
+  const onDelete = vi.fn().mockResolvedValue(true);
+  const onClearAll = vi.fn().mockResolvedValue(true);
+  const onPin = vi.fn().mockResolvedValue(true);
+  const onHide = vi.fn();
+
+  const onClearUnpinned = vi.fn().mockResolvedValue(true);
+  const onUndo = vi.fn().mockResolvedValue(true);
+
+  const result = render(
+    <ClipboardPanel
+      items={items}
+      onPaste={onPaste}
+      onDelete={onDelete}
+      onClearAll={onClearAll}
+      onClearUnpinned={onClearUnpinned}
+      onUndo={onUndo}
+      canUndo={false}
+      onPin={onPin}
+      onHide={onHide}
+      isBusy={false}
+      {...overrides}
+    />,
+  );
+
+  return { ...result, onPaste, onDelete, onClearAll, onPin, onHide };
+}
 
 describe("ClipboardPanel", () => {
   it("renders the drag region with data-tauri-drag-region attribute", () => {
-    render(
-      <ClipboardPanel
-        items={items}
-        onPaste={vi.fn()}
-        onDelete={vi.fn()}
-        onClearAll={vi.fn()}
-        onPin={vi.fn()}
-        onHide={vi.fn()}
-      />,
-    );
+    renderPanel();
 
     const dragRegion = screen.getByLabelText("Drag to move window");
     expect(dragRegion).toBeInTheDocument();
@@ -32,18 +92,143 @@ describe("ClipboardPanel", () => {
   });
 
   it("renders the drag region with the correct height", () => {
-    render(
-      <ClipboardPanel
-        items={items}
-        onPaste={vi.fn()}
-        onDelete={vi.fn()}
-        onClearAll={vi.fn()}
-        onPin={vi.fn()}
-        onHide={vi.fn()}
-      />,
-    );
+    renderPanel();
 
     const dragRegion = screen.getByLabelText("Drag to move window");
     expect(dragRegion).toHaveStyle({ height: `${PANEL_DRAG_REGION_HEIGHT_PX}px` });
+  });
+
+  it("focuses the command root on mount", async () => {
+    const { container } = renderPanel();
+    const root = getCommandRoot(container);
+
+    await waitFor(() => {
+      expect(root).toHaveFocus();
+    });
+  });
+
+  it("enters search mode on s and restores focus on Escape", async () => {
+    const user = userEvent.setup();
+    const { container } = renderPanel();
+    const root = getCommandRoot(container);
+
+    await waitFor(() => {
+      expect(root).toHaveFocus();
+    });
+
+    fireEvent.keyDown(root, { key: "s" });
+
+    const input = screen.getByPlaceholderText("Search clipboard...");
+    await waitFor(() => {
+      expect(input).toHaveFocus();
+    });
+
+    await user.type(input, "wo");
+    expect(input).toHaveValue("wo");
+
+    fireEvent.keyDown(input, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(root).toHaveFocus();
+    });
+    expect(input).toHaveValue("");
+  });
+
+  it("pastes the selected item on Enter", async () => {
+    const { container, onPaste } = renderPanel();
+    const root = getCommandRoot(container);
+
+    await waitFor(() => {
+      expect(getSelectedItem(container)).toHaveTextContent("hello");
+    });
+
+    fireEvent.keyDown(root, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(onPaste).toHaveBeenCalledWith(items[0]);
+    });
+  });
+
+  it("moves selection after deleting the selected item once the list updates", async () => {
+    function Harness(): ReactElement {
+      const [currentItems, setCurrentItems] = useState(items);
+
+      return (
+        <ClipboardPanel
+          items={currentItems}
+          onPaste={vi.fn().mockResolvedValue(true)}
+          onDelete={vi.fn(async (id: string) => {
+            setCurrentItems((prev) => prev.filter((item) => item.id !== id));
+            return true;
+          })}
+          onClearAll={vi.fn().mockResolvedValue(true)}
+          onClearUnpinned={vi.fn().mockResolvedValue(true)}
+          onUndo={vi.fn().mockResolvedValue(true)}
+          canUndo={false}
+          onPin={vi.fn().mockResolvedValue(true)}
+          onHide={vi.fn()}
+          isBusy={false}
+        />
+      );
+    }
+
+    const { container } = render(<Harness />);
+    const root = getCommandRoot(container);
+
+    await waitFor(() => {
+      expect(getSelectedItem(container)).toHaveTextContent("hello");
+    });
+
+    fireEvent.keyDown(root, { key: "d" });
+
+    await waitFor(() => {
+      expect(screen.queryByText("hello")).not.toBeInTheDocument();
+      expect(getSelectedItem(container)).toHaveTextContent("world");
+    });
+  });
+
+  it("moves selection to the previous item when deleting the last item", async () => {
+    function Harness(): ReactElement {
+      const [currentItems, setCurrentItems] = useState(items);
+
+      return (
+        <ClipboardPanel
+          items={currentItems}
+          onPaste={vi.fn().mockResolvedValue(true)}
+          onDelete={vi.fn(async (id: string) => {
+            setCurrentItems((prev) => prev.filter((item) => item.id !== id));
+            return true;
+          })}
+          onClearAll={vi.fn().mockResolvedValue(true)}
+          onClearUnpinned={vi.fn().mockResolvedValue(true)}
+          onUndo={vi.fn().mockResolvedValue(true)}
+          canUndo={false}
+          onPin={vi.fn().mockResolvedValue(true)}
+          onHide={vi.fn()}
+          isBusy={false}
+        />
+      );
+    }
+
+    const { container } = render(<Harness />);
+    const root = getCommandRoot(container);
+
+    await waitFor(() => {
+      expect(getSelectedItem(container)).toHaveTextContent("hello");
+    });
+
+    fireEvent.keyDown(root, { key: "ArrowDown" });
+    fireEvent.keyDown(root, { key: "ArrowDown" });
+
+    await waitFor(() => {
+      expect(getSelectedItem(container)).toHaveTextContent("third item");
+    });
+
+    fireEvent.keyDown(root, { key: "d" });
+
+    await waitFor(() => {
+      expect(screen.queryByText("third item")).not.toBeInTheDocument();
+      expect(getSelectedItem(container)).toHaveTextContent("world");
+    });
   });
 });
