@@ -39,8 +39,27 @@ interface ClipboardPanelProps {
   autoPaste?: boolean;
 }
 
+// MUST stay in sync with what cmdk persists on the rendered DOM. cmdk runs
+// `String.prototype.trim()` on every item value before storing it on the
+// `data-value` attribute (see cmdk/dist/index.mjs — `R.trim()` in the value
+// effect, then `setAttribute("data-value", f)`). If we keep an untrimmed
+// version on the React side, three things break in concert any time a
+// preview ends in whitespace (extremely common, since
+// `text.chars().take(200)` regularly cuts at a space/newline — and that is
+// exactly what makes an item "expandable" too):
+//
+//   1. `getActiveItemValue()` reads the trimmed DOM value; `findItemByValue`
+//      compares it to the untrimmed React value → mismatch → `d` no-ops.
+//   2. `handleDelete`'s `targetingSelected` check has the same mismatch →
+//      selection migration is skipped → cmdk's W() falls back to item[0]
+//      and the highlight jumps to the top after delete.
+//   3. The CSS-attribute selector used by ArrowDown/Up's `scrollIntoView`
+//      would look for the untrimmed value and miss the element.
+//
+// Trimming on this side keeps a single normalized representation across
+// React state, cmdk's internal store, and the rendered DOM.
 function getItemValue(item: ClipItemType): string {
-  return `${item.id}-${item.preview}`;
+  return `${item.id}-${item.preview}`.trim();
 }
 
 function findItemByValue(items: ClipItemType[], cmdkValue: string): ClipItemType | undefined {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import { ClipboardPanel } from "@/components/ClipboardPanel";
 import { useClipboardHistory } from "@/hooks/useClipboardHistory";
 import { useClipboardActions } from "@/hooks/useClipboardActions";
@@ -69,7 +70,17 @@ export function App(): React.ReactElement {
   }, [popUndo, restoreItems]);
 
   const handleHide = useCallback(() => {
-    getCurrentWindow().hide();
+    // Hide first, then bounce focus back to the app that owned the caret
+    // when we opened. macOS panel windows (decorations:false +
+    // alwaysOnTop) don't reliably restore focus on their own, so the prior
+    // input field would lose its caret without this. Errors are swallowed
+    // because hide() must still succeed even if the IPC call fails.
+    void getCurrentWindow()
+      .hide()
+      .then(() => invoke("restore_previous_focus"))
+      .catch((error) => {
+        console.error("Failed to restore previous focus:", error);
+      });
   }, []);
 
   useEffect(() => {

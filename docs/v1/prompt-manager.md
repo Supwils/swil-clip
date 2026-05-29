@@ -1,8 +1,18 @@
 # SwilClip v1 — Prompt Manager 设计文档
 
-**状态：** 设计草案
-**关联版本：** v1（见 [version-roadmap.md](../version-roadmap.md)）
-**范围：** Prompt 库核心功能；不含 AI API 调用、团队同步、LLM 语义搜索（defer to v2）
+> ## ⛔ 已废弃 / 不会实现 (DEPRECATED — 2026-05-28)
+>
+> **本文档描述的方向已被产品决策否决。SwilClip 锁定为"极简纯粹派 / 更现代的 Maccy"路线，不做 snippet / prompt 库。**
+>
+> 详见 [version-roadmap.md → 产品方向 / Non-Goals](../version-roadmap.md#产品方向已锁定--非目标-non-goals)。
+>
+> 本文件保留作为**历史决策记录**——记录"我们考虑过 prompt 库这条路并明确拒绝"。如果未来有人再次提出同类需求，先读这份文档和 Non-Goals 章节，理解过去为何拒绝，再讨论是否情况变化。**默认答案仍然是不做。**
+
+---
+
+**状态：** ⛔ 已废弃（曾为：设计草案）
+**关联版本：** ~~v1~~ — 不再关联任何版本
+**范围：** ~~Prompt 库核心功能~~（已否决）
 
 ---
 

@@ -1,6 +1,6 @@
 [package]
 name = "swil-clip"
-version = "0.1.1"
+version = "0.1.2"
 description = "A minimal clipboard manager for macOS"
 authors = ["supwilsoft"]
 license = "MIT"

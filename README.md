@@ -36,16 +36,22 @@ Press **Cmd + Shift + V** anywhere on your Mac. The panel appears near your curs
 
 | Action | Shortcut |
 |--------|----------|
-| Search | Just type in the search box (auto-focused) |
-| Move up / down | Arrow keys `↑` `↓` |
-| Paste selected item | `Enter` |
-| Quick-paste item 1-9 | `Cmd+1` through `Cmd+9` |
+| Search | Press `s` then type (or click the input) |
+| Move up / down | Arrow keys `↑` `↓` (also `Home` / `End`, `Cmd+↑/↓`) |
+| Copy / paste selected item | `Enter` (behavior depends on Auto Paste setting — see below) |
+| Quick-pick item 1-9 | `⌥+1` through `⌥+9` (Option/Alt) |
+| Delete / Pin / Expand | `d` / `p` / `e` |
+| Undo last delete | `u` |
 | Dismiss panel | `Esc` or click outside |
 
-When you press `Enter` or use a quick-paste shortcut, SwilClip:
-1. Writes the selected content back to the system clipboard
-2. Hides the panel
-3. Simulates `Cmd+V` to paste into your active app
+**Default — `Enter` only copies, doesn't paste.** When you press `Enter` (or a quick-pick shortcut), SwilClip:
+1. Writes the selected content to the system clipboard.
+2. Hides the panel and **restores focus to whatever app was frontmost when you summoned SwilClip** (e.g. your Terminal input keeps its caret).
+3. Stops there — *you* press `⌘V` yourself, wherever you want.
+
+This is the default because it needs no Accessibility permission and never surprises you by pasting into the wrong field.
+
+**Optional — Auto Paste mode.** Open the settings panel (gear icon, top-right) and toggle **Auto Paste** on. With Auto Paste enabled, `Enter` additionally simulates `Cmd+V` after the focus is restored, so the chosen item lands in your original input field in one keystroke.
 
 ### System Tray
 
@@ -83,7 +89,9 @@ See [docs/init-doc.md](docs/init-doc.md) for full architecture and feature specs
 
 ## Permissions
 
-SwilClip requires **Accessibility** permission on macOS to simulate `Cmd+V` keystrokes. On first paste, macOS will prompt you to grant access in **System Settings > Privacy & Security > Accessibility**.
+The default (Copy-only) mode needs **no special permission** — SwilClip never sends synthetic keystrokes.
+
+**Accessibility** permission is only required if you enable **Auto Paste** in settings, because Auto Paste simulates `Cmd+V` via `CGEvent`. macOS will prompt you to grant access in **System Settings → Privacy & Security → Accessibility** the first time Auto Paste fires.
 
 ## Tech Stack
 

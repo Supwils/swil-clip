@@ -32,6 +32,7 @@ pub fn run() {
             commands::update_max_history,
             commands::update_auto_paste,
             commands::reorder_items,
+            commands::restore_previous_focus,
         ])
         .setup(|app| {
             app.manage(focus_target::PasteTargetStore::default());
@@ -121,6 +122,13 @@ pub fn run() {
                                 let visible = window.is_visible().unwrap_or(false);
                                 if visible {
                                     let _ = window.hide();
+                                    // Toggling closed should also bounce focus
+                                    // back to the prior app — the panel hijacked
+                                    // it on show, so we restore on the matching
+                                    // hide.
+                                    handle_for_shortcut
+                                        .state::<focus_target::PasteTargetStore>()
+                                        .activate_stored_now();
                                 } else {
                                     handle_for_shortcut
                                         .state::<focus_target::PasteTargetStore>()

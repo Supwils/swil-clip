@@ -187,6 +187,72 @@ describe("ClipboardPanel", () => {
     });
   });
 
+  // Regression guard: cmdk trims item values before writing them to the
+  // `data-value` DOM attribute. If the React side stored the untrimmed form,
+  // `d` would silently no-op and the selection would jump to the top after
+  // delete, because every "is this the selected item?" comparison reads from
+  // the DOM. Items whose preview ends in whitespace (`text.chars().take(200)`
+  // routinely truncates at a space — exactly the case for expandable items)
+  // would be the ones to break.
+  it("deletes via d and advances selection when preview has trailing whitespace", async () => {
+    const whitespaceItems: ClipItem[] = [
+      {
+        id: "ws-1",
+        clipType: "text",
+        content: "long content that exceeds the preview ",
+        preview: "long content that exceeds the preview ",
+        timestamp: 1700000000000,
+      },
+      {
+        id: "ws-2",
+        clipType: "text",
+        content: "second\n",
+        preview: "second\n",
+        timestamp: 1700000001000,
+      },
+    ];
+
+    function Harness(): ReactElement {
+      const [currentItems, setCurrentItems] = useState(whitespaceItems);
+
+      return (
+        <ClipboardPanel
+          items={currentItems}
+          onPaste={vi.fn().mockResolvedValue(true)}
+          onDelete={vi.fn(async (id: string) => {
+            setCurrentItems((prev) => prev.filter((item) => item.id !== id));
+            return true;
+          })}
+          onClearAll={vi.fn().mockResolvedValue(true)}
+          onClearUnpinned={vi.fn().mockResolvedValue(true)}
+          onUndo={vi.fn().mockResolvedValue(true)}
+          canUndo={false}
+          onPin={vi.fn().mockResolvedValue(true)}
+          onHide={vi.fn()}
+          isBusy={false}
+        />
+      );
+    }
+
+    const { container } = render(<Harness />);
+    const root = getCommandRoot(container);
+
+    await waitFor(() => {
+      expect(getSelectedItem(container)).toHaveTextContent(
+        "long content that exceeds the preview",
+      );
+    });
+
+    fireEvent.keyDown(root, { key: "d" });
+
+    await waitFor(() => {
+      expect(
+        screen.queryByText("long content that exceeds the preview"),
+      ).not.toBeInTheDocument();
+      expect(getSelectedItem(container)).toHaveTextContent("second");
+    });
+  });
+
   it("moves selection to the previous item when deleting the last item", async () => {
     function Harness(): ReactElement {
       const [currentItems, setCurrentItems] = useState(items);

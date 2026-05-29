@@ -40,12 +40,29 @@ pub fn paste_item(app_handle: AppHandle, id: String) -> Result<(), String> {
             .activate_stored_before_paste();
         crate::simulate::write_and_paste(&item)?;
     } else {
-        // Manual mode: just put the content on the clipboard. The frontend
-        // has already hidden the window, so focus returns naturally to the
-        // user's prior app; they press ⌘V themselves.
+        // Manual mode: put the content on the clipboard AND explicitly
+        // re-activate the prior app so its input box keeps the caret. macOS
+        // panel windows (decorations:false + alwaysOnTop) do not always hand
+        // focus back to the previously-frontmost app on hide, so we cannot
+        // rely on the OS to do it for us.
+        app_handle
+            .state::<crate::focus_target::PasteTargetStore>()
+            .activate_stored_now();
         crate::simulate::write_only(&item)?;
     }
 
+    Ok(())
+}
+
+/// Restore focus to whichever app was frontmost when the panel was opened.
+/// Used by the frontend when the user dismisses the panel without pasting
+/// (Esc, focus loss to the panel itself) so the caret in their previous
+/// input box stays put.
+#[tauri::command]
+pub fn restore_previous_focus(app_handle: AppHandle) -> Result<(), String> {
+    app_handle
+        .state::<crate::focus_target::PasteTargetStore>()
+        .activate_stored_now();
     Ok(())
 }
 

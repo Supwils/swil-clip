@@ -21,8 +21,23 @@ impl PasteTargetStore {
         }
     }
 
-    /// Call before writing the pasteboard and posting Cmd+V.
+    /// Call before writing the pasteboard and posting Cmd+V. Includes a short
+    /// sleep so macOS can finish the focus transition before the synthetic
+    /// keystroke fires.
     pub fn activate_stored_before_paste(&self) {
+        self.activate_stored(Duration::from_millis(100));
+    }
+
+    /// Restore focus to the previously-frontmost app without any delay.
+    /// Used when we're just hiding the panel (Esc, manual-paste flow) — no
+    /// subsequent keystroke needs the focus to have already landed, so we
+    /// skip the 100ms sleep.
+    pub fn activate_stored_now(&self) {
+        self.activate_stored(Duration::ZERO);
+    }
+
+    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
+    fn activate_stored(&self, settle: Duration) {
         #[cfg(target_os = "macos")]
         {
             let pid_opt = self.0.lock().ok().and_then(|g| *g);
@@ -30,7 +45,9 @@ impl PasteTargetStore {
                 let self_pid = std::process::id() as i32;
                 if pid != self_pid {
                     let _ = macos::activate_pid(pid);
-                    std::thread::sleep(Duration::from_millis(100));
+                    if !settle.is_zero() {
+                        std::thread::sleep(settle);
+                    }
                 }
             }
         }
