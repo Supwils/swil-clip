@@ -1,7 +1,6 @@
-import { useCallback } from "react";
-import { CommandItem, CommandShortcut } from "@/components/ui/command";
+import { memo, useCallback, useMemo } from "react";
+import { CommandItem } from "@/components/ui/command";
 import type { ClipItem as ClipItemType } from "@/types/clipboard";
-import { QUICK_PASTE_LIMIT } from "@/constants";
 import {
   FileTextIcon,
   ImageIcon,
@@ -15,6 +14,7 @@ import {
   ChevronUpIcon,
   PinIcon,
 } from "lucide-react";
+import { canExpandItem } from "@/lib/clip";
 import { detectContentTag, extractColorValue } from "@/lib/contentDetection";
 import { formatRelativeTime } from "@/lib/time";
 import { renderHighlightedText } from "@/lib/highlight";
@@ -42,7 +42,10 @@ interface ClipItemProps {
   onItemDragEnd?: () => void;
 }
 
-export function ClipItem({
+// Memoized: the panel re-renders on every arrow key and search keystroke,
+// and without this every row re-ran content detection (regexes + JSON.parse
+// over the full content) and rebuilt image data-URLs each time.
+export const ClipItem = memo(function ClipItem({
   item,
   index,
   onSelect,
@@ -61,10 +64,18 @@ export function ClipItem({
   onItemDrop,
   onItemDragEnd,
 }: ClipItemProps): React.ReactElement {
-  const shortcutIndex = index + 1;
-  const hasShortcut = shortcutIndex <= QUICK_PASTE_LIMIT;
   const isImage = item.clipType === "image";
-  const contentTag = isImage ? null : detectContentTag(item.content);
+  const contentTag = useMemo(
+    () => (isImage ? null : detectContentTag(item.content)),
+    [isImage, item.content],
+  );
+  const imageSrc = useMemo(
+    () =>
+      isImage && item.content
+        ? `data:image/${item.imageFormat ?? "png"};base64,${item.content}`
+        : null,
+    [isImage, item.content, item.imageFormat],
+  );
   const relativeTime = formatRelativeTime(item.timestamp);
 
   const handleDelete = useCallback(
@@ -94,7 +105,7 @@ export function ClipItem({
     [item.id, item.pinned, onPin],
   );
 
-  const canExpand = !isImage && item.content.length > item.preview.length;
+  const canExpand = canExpandItem(item);
 
   const dragEnabled = section !== undefined && onItemDragStart !== undefined;
 
@@ -116,7 +127,10 @@ export function ClipItem({
 
   return (
     <CommandItem
-      value={`${item.id}-${item.preview}`}
+      // Selection identity is the stable, whitespace-free id — never derived
+      // from content, so cmdk's value normalization can't desync it from
+      // React state. Search filtering happens in the panel, not in cmdk.
+      value={item.id}
       onSelect={() => onSelect(item)}
       // items-stretch overrides cmdk's default items-center so children fill full width.
       // [&>svg:last-child]:hidden hides the CheckIcon auto-appended by CommandItem.
@@ -151,9 +165,9 @@ export function ClipItem({
         {/* Type chip — compact, ~20px to keep rows dense */}
         {isImage ? (
           <div className="clip-icon relative flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden rounded-[5px] bg-surface-soft ring-[0.5px] ring-inset ring-border-subtle">
-            {item.content ? (
+            {imageSrc ? (
               <img
-                src={`data:image/${item.imageFormat ?? "png"};base64,${item.content}`}
+                src={imageSrc}
                 alt="clipboard image"
                 className="h-full w-full object-cover"
                 draggable={false}
@@ -195,11 +209,12 @@ export function ClipItem({
 
         {/* Right cluster: action buttons (hover/selected) OR meta (rest state).
          *
-         * min-width is sized for the WIDER of the two states — when actions
-         * appear (absolute overlay) they fit within the reserved space and
-         * never overlap the truncated preview text. */}
+         * min-width is sized for the WIDER of the two states — the action
+         * overlay (3 × 20px buttons + gaps). The static meta is now narrower
+         * than that, so the reserve is what keeps the timestamp from shifting
+         * horizontally when a row is selected. */}
         <div className="relative flex shrink-0 items-center justify-end" style={{ minWidth: "66px" }}>
-          {/* Static meta — timestamp + pin badge + shortcut. Fades out on hover/select */}
+          {/* Static meta — timestamp + pin badge. Fades out on hover/select */}
           <div className="clip-meta-static flex items-center gap-1 transition-opacity duration-100">
             {item.pinned && (
               <PinIcon
@@ -210,12 +225,6 @@ export function ClipItem({
             <span className="clip-meta text-[9.5px] tabular-nums text-foreground-faint">
               {relativeTime}
             </span>
-            {hasShortcut && (
-              <CommandShortcut className="shortcut-badge ml-0.5 flex shrink-0 items-center gap-0.5 text-[9.5px] font-medium tabular-nums text-foreground-faint">
-                <kbd className="font-sans">⌥</kbd>
-                <kbd>{shortcutIndex}</kbd>
-              </CommandShortcut>
-            )}
           </div>
 
           {/* Action buttons — overlay; visible only on hover or when selected */}
@@ -278,4 +287,4 @@ export function ClipItem({
       )}
     </CommandItem>
   );
-}
+});

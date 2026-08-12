@@ -2,7 +2,8 @@
 
 A minimal, keyboard-first clipboard manager for macOS. Built with Tauri 2.0 + React + TypeScript.
 
-340px-wide frosted glass panel. Up to 50 entries. Zero dock footprint.
+340px-wide frosted glass panel. Menu-bar only — no Dock icon, no ⌘Tab entry.
+Encrypted history at rest; password-manager clipboards are never recorded.
 
 ## Prerequisites
 
@@ -39,12 +40,11 @@ Press **Cmd + Shift + V** anywhere on your Mac. The panel appears near your curs
 | Search | Press `s` then type (or click the input) |
 | Move up / down | Arrow keys `↑` `↓` (also `Home` / `End`, `Cmd+↑/↓`) |
 | Copy / paste selected item | `Enter` (behavior depends on Auto Paste setting — see below) |
-| Quick-pick item 1-9 | `⌥+1` through `⌥+9` (Option/Alt) |
 | Delete / Pin / Expand | `d` / `p` / `e` |
 | Undo last delete | `u` |
 | Dismiss panel | `Esc` or click outside |
 
-**Default — `Enter` only copies, doesn't paste.** When you press `Enter` (or a quick-pick shortcut), SwilClip:
+**Default — `Enter` only copies, doesn't paste.** When you press `Enter`, SwilClip:
 1. Writes the selected content to the system clipboard.
 2. Hides the panel and **restores focus to whatever app was frontmost when you summoned SwilClip** (e.g. your Terminal input keeps its caret).
 3. Stops there — *you* press `⌘V` yourself, wherever you want.
@@ -65,7 +65,13 @@ SwilClip silently monitors your clipboard in the background (polling every 500ms
 - **Text** -- plain text, code snippets, URLs
 - **Images** -- screenshots and copied images (stored as base64, shown as thumbnails)
 
-Duplicate consecutive copies are ignored. History is capped at **50 entries** (oldest evicted first).
+**Not captured:** pasteboards a password manager marks as concealed. 1Password, Keychain Access
+and anything else following the `org.nspasteboard.ConcealedType` convention are skipped outright,
+so copied passwords never enter the history.
+
+Duplicate consecutive copies are ignored. History is capped at **50 unpinned entries** by default
+(oldest evicted first) — configurable to 100 / 200 / 500 in Settings. **Pinned items never count
+toward the cap and are never evicted.**
 
 ## Project Structure
 
@@ -75,7 +81,9 @@ src-tauri/              Rust backend (clipboard, store, tray, simulate)
 docs/                   Product documentation
 ```
 
-See [docs/init-doc.md](docs/init-doc.md) for full architecture and feature specs.
+See [docs/init-doc.md](docs/init-doc.md) for full architecture and feature specs, and
+[docs/code-review.md](docs/code-review.md) for the open findings register — read its
+"standing hazard" section before touching selection, deletion or keyboard navigation.
 
 ## Scripts
 
@@ -97,21 +105,25 @@ The default (Copy-only) mode needs **no special permission** — SwilClip never 
 
 Tauri 2.0 (Rust) / React 19 / Vite 6 / TypeScript (strict) / Tailwind CSS 4 / shadcn/ui (cmdk) / tauri-plugin-store / tauri-plugin-global-shortcut
 
-## Usage
+## Install
 
-This build has not been notarized by Apple; consequently, it may be blocked upon its initial launch.
-If you encounter a "damaged" warning, you can resolve it by executing the following command in the Terminal:
+Download the latest `SwilClip_<version>_universal.dmg` from the
+[Releases](../../releases) page, open it, and drag **SwilClip** into
+**Applications**. The build is signed with a Developer ID and notarized by
+Apple, so it opens normally — no Gatekeeper warning, no `xattr` workaround.
 
-### xattr -cr /Applications/SwilClip.app     check the path
+On first launch you only need to grant **Accessibility** permission if you turn
+on *Auto Paste* (see [Permissions](#permissions) above).
 
-Then, attempt to open the application again.
-Note: If you build and install the application yourself directly from the source code using `pnpm tauri build`, you typically will not encounter the "downloaded from the Internet" quarantine issues (though permissions related to Accessibility and similar features may still be required).
+## Releasing (maintainers)
 
-本构建未经过 Apple 公证，首次运行可能被拦截。
-若提示「已损坏」，可在终端执行：
-xattr -cr /Applications/SwilClip.app
-请检查路径是否正确, 然后再打开。
-或说明：从源码自行 pnpm tauri build 安装通常不会有「从网上下载」的隔离问题（仍可能涉及辅助功能等权限）。
+Building the signed & notarized Universal DMG is documented in
+[docs/releasing.md](docs/releasing.md). In short, once credentials are in
+`.env.release`:
+
+```bash
+pnpm release:mac
+```
 
 ## License
 

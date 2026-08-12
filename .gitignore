@@ -5,6 +5,11 @@ dist-electron/
 .env
 .env.*
 !.env.example
+!.env.release.example
+
+# Release signing secrets — never commit
+*.p8
+*.p12
 
 *.log
 *.tsbuildinfo

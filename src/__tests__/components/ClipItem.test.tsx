@@ -49,34 +49,20 @@ describe("ClipItem", () => {
     expect(screen.getByText("Hello clipboard")).toBeInTheDocument();
   });
 
-  it("shows ⌥1 shortcut badge for index 0", () => {
-    render(
-      <Wrapper>
-        <ClipItem item={textItem} index={0} onSelect={onSelect} onDelete={onDelete} onPin={onPin} isExpanded={false} onToggleExpand={onToggleExpand} />
-      </Wrapper>,
-    );
-    expect(screen.getByText("⌥")).toBeInTheDocument();
-    expect(screen.getByText("1")).toBeInTheDocument();
-  });
-
-  it("shows ⌥9 shortcut badge for index 8 (last shortcut)", () => {
-    render(
-      <Wrapper>
-        <ClipItem item={textItem} index={8} onSelect={onSelect} onDelete={onDelete} onPin={onPin} isExpanded={false} onToggleExpand={onToggleExpand} />
-      </Wrapper>,
-    );
-    expect(screen.getByText("9")).toBeInTheDocument();
-  });
-
-  it("does not show shortcut badge for index 9 (beyond QUICK_PASTE_LIMIT)", () => {
-    render(
-      <Wrapper>
-        <ClipItem item={textItem} index={9} onSelect={onSelect} onDelete={onDelete} onPin={onPin} isExpanded={false} onToggleExpand={onToggleExpand} />
-      </Wrapper>,
-    );
-    // index 9 → shortcutIndex 10, beyond limit of 9
-    expect(screen.queryByText("10")).not.toBeInTheDocument();
-    expect(screen.queryByText("⌥")).not.toBeInTheDocument();
+  // The ⌥N badge was removed: on macOS, holding Option rewrites
+  // KeyboardEvent.key to the layout's alternate character (⌥1 → "¡"), so the
+  // App-level `parseInt(event.key)` handler it advertised almost certainly
+  // never fired. A row must not name a keystroke it can't deliver.
+  it("does not advertise an ⌥ shortcut on any row", () => {
+    for (const index of [0, 8, 9]) {
+      const { unmount } = render(
+        <Wrapper>
+          <ClipItem item={textItem} index={index} onSelect={onSelect} onDelete={onDelete} onPin={onPin} isExpanded={false} onToggleExpand={onToggleExpand} />
+        </Wrapper>,
+      );
+      expect(screen.queryByText("⌥")).not.toBeInTheDocument();
+      unmount();
+    }
   });
 
   it("renders image item with img element", () => {

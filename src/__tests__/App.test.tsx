@@ -32,6 +32,8 @@ const appMocks = vi.hoisted(() => ({
 vi.mock("@/hooks/useClipboardHistory", () => ({
   useClipboardHistory: () => ({
     items: appMocks.items,
+    isLoading: false,
+    error: null,
     refresh: appMocks.refresh,
   }),
 }));
@@ -48,9 +50,11 @@ vi.mock("@/hooks/useClipboardActions", () => ({
 
 vi.mock("@/hooks/useSettings", () => ({
   useSettings: () => ({
-    settings: { globalShortcut: "cmd+shift+v" },
+    settings: { globalShortcut: "cmd+shift+v", maxHistory: 50, autoPaste: false },
     isLoading: false,
     updateGlobalShortcut: vi.fn().mockResolvedValue(undefined),
+    updateMaxHistory: vi.fn().mockResolvedValue(undefined),
+    updateAutoPaste: vi.fn().mockResolvedValue(undefined),
   }),
 }));
 

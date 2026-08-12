@@ -45,6 +45,7 @@ describe("useClipboardHistory", () => {
 
     expect(invoke).toHaveBeenCalledWith("get_history");
     expect(result.current.items).toEqual([mockTextItem]);
+    expect(result.current.error).toBeNull();
   });
 
   it("returns empty items when history is empty", async () => {
@@ -63,65 +64,47 @@ describe("useClipboardHistory", () => {
     expect(listen).toHaveBeenCalledWith("clipboard-changed", expect.any(Function));
   });
 
-  it("adds new item from clipboard-changed event", async () => {
-    let capturedCallback: ((event: { payload: ClipItem }) => void) | undefined;
+  it("refetches the authoritative list on clipboard-changed", async () => {
+    let capturedCallback: (() => void) | undefined;
 
     vi.mocked(listen).mockImplementationOnce((_, callback) => {
-      capturedCallback = callback as (event: { payload: ClipItem }) => void;
+      capturedCallback = callback as () => void;
       return Promise.resolve(() => {});
     });
 
-    const { result } = renderHook(() => useClipboardHistory());
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-    act(() => {
-      capturedCallback?.({ payload: mockTextItem });
-    });
-
-    expect(result.current.items).toHaveLength(1);
-    expect(result.current.items[0]).toEqual(mockTextItem);
-  });
-
-  it("prepends new item to existing history from event", async () => {
-    vi.mocked(invoke).mockResolvedValueOnce([mockTextItem]);
-    let capturedCallback: ((event: { payload: ClipItem }) => void) | undefined;
-
-    vi.mocked(listen).mockImplementationOnce((_, callback) => {
-      capturedCallback = callback as (event: { payload: ClipItem }) => void;
-      return Promise.resolve(() => {});
-    });
+    // Initial load: one item. After the event, the backend has merged the
+    // new copy in and returns the updated list.
+    vi.mocked(invoke)
+      .mockResolvedValueOnce([mockTextItem])
+      .mockResolvedValueOnce([mockTextItem2, mockTextItem]);
 
     const { result } = renderHook(() => useClipboardHistory());
     await waitFor(() => expect(result.current.items).toHaveLength(1));
 
     act(() => {
-      capturedCallback?.({ payload: mockTextItem2 });
+      capturedCallback?.();
     });
 
-    expect(result.current.items).toHaveLength(2);
+    await waitFor(() => expect(result.current.items).toHaveLength(2));
     expect(result.current.items[0]).toEqual(mockTextItem2);
+    expect(invoke).toHaveBeenCalledTimes(2);
+    expect(invoke).toHaveBeenNthCalledWith(2, "get_history");
   });
 
-  it("deduplicates: same content+type event replaces old entry", async () => {
-    vi.mocked(invoke).mockResolvedValueOnce([mockTextItem, mockTextItem2]);
-    let capturedCallback: ((event: { payload: ClipItem }) => void) | undefined;
-
-    vi.mocked(listen).mockImplementationOnce((_, callback) => {
-      capturedCallback = callback as (event: { payload: ClipItem }) => void;
-      return Promise.resolve(() => {});
-    });
-
+  it("exposes the failure reason and clears it on a successful refresh", async () => {
+    vi.mocked(invoke).mockRejectedValueOnce("Keychain read failed");
     const { result } = renderHook(() => useClipboardHistory());
-    await waitFor(() => expect(result.current.items).toHaveLength(2));
 
-    // New item with same content as mockTextItem but different id
-    const duplicate: ClipItem = { ...mockTextItem, id: "new-id" };
-    act(() => {
-      capturedCallback?.({ payload: duplicate });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.error).toBe("Keychain read failed");
+    expect(result.current.items).toHaveLength(0);
+
+    vi.mocked(invoke).mockResolvedValueOnce([mockTextItem]);
+    await act(async () => {
+      await result.current.refresh();
     });
 
-    // Length stays at 2 (replaced, not appended)
-    expect(result.current.items).toHaveLength(2);
-    expect(result.current.items[0]?.id).toBe("new-id");
+    expect(result.current.error).toBeNull();
+    expect(result.current.items).toEqual([mockTextItem]);
   });
 });

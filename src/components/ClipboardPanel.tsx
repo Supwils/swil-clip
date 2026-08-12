@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import {
+  AlertTriangleIcon,
   ClipboardIcon,
   SearchIcon,
   Trash2Icon,
@@ -16,6 +18,9 @@ import { ClipItem } from "@/components/ClipItem";
 import { SettingsDialog } from "@/components/SettingsDialog";
 import { PANEL_DRAG_REGION_HEIGHT_PX } from "@/constants";
 import { useDragReorder } from "@/hooks/useDragReorder";
+import { canExpandItem } from "@/lib/clip";
+import { fuzzyMatches } from "@/lib/highlight";
+import type { UseSettingsReturn } from "@/hooks/useSettings";
 import type { ClipItem as ClipItemType } from "@/types/clipboard";
 
 type PanelMode = "navigate" | "search";
@@ -32,38 +37,20 @@ interface ClipboardPanelProps {
   onReorder?: (orderedIds: string[], pinnedIds: string[]) => Promise<boolean>;
   onHide: () => void;
   isBusy: boolean;
+  /** The app-wide settings instance, threaded through to SettingsDialog. */
+  settingsApi: UseSettingsReturn;
   /** Incrementing token from App — when it bumps, open the Settings dialog. */
   settingsRequestId?: number;
   /** Whether Enter should auto-paste (true) or just copy (false). Drives the
    *  ⏎ hint label so users always see the truth about what's about to happen. */
   autoPaste?: boolean;
-}
-
-// MUST stay in sync with what cmdk persists on the rendered DOM. cmdk runs
-// `String.prototype.trim()` on every item value before storing it on the
-// `data-value` attribute (see cmdk/dist/index.mjs — `R.trim()` in the value
-// effect, then `setAttribute("data-value", f)`). If we keep an untrimmed
-// version on the React side, three things break in concert any time a
-// preview ends in whitespace (extremely common, since
-// `text.chars().take(200)` regularly cuts at a space/newline — and that is
-// exactly what makes an item "expandable" too):
-//
-//   1. `getActiveItemValue()` reads the trimmed DOM value; `findItemByValue`
-//      compares it to the untrimmed React value → mismatch → `d` no-ops.
-//   2. `handleDelete`'s `targetingSelected` check has the same mismatch →
-//      selection migration is skipped → cmdk's W() falls back to item[0]
-//      and the highlight jumps to the top after delete.
-//   3. The CSS-attribute selector used by ArrowDown/Up's `scrollIntoView`
-//      would look for the untrimmed value and miss the element.
-//
-// Trimming on this side keeps a single normalized representation across
-// React state, cmdk's internal store, and the rendered DOM.
-function getItemValue(item: ClipItemType): string {
-  return `${item.id}-${item.preview}`.trim();
-}
-
-function findItemByValue(items: ClipItemType[], cmdkValue: string): ClipItemType | undefined {
-  return items.find((item) => cmdkValue === getItemValue(item));
+  /** Why history failed to load (Keychain denied, corrupt blob, …). When set
+   *  the empty state becomes an error state with recovery actions — an
+   *  unreadable history must never masquerade as an empty one. */
+  historyError?: string | null;
+  onRetryHistory?: () => Promise<void>;
+  /** Wipes the persisted history without needing the encryption key. */
+  onResetHistory?: () => Promise<boolean>;
 }
 
 interface KeyHintProps {
@@ -95,25 +82,47 @@ export function ClipboardPanel({
   onReorder,
   onHide,
   isBusy,
+  settingsApi,
   settingsRequestId,
   autoPaste = false,
+  historyError = null,
+  onRetryHistory,
+  onResetHistory,
 }: ClipboardPanelProps): React.ReactElement {
   const [mode, setMode] = useState<PanelMode>("navigate");
   const [search, setSearch] = useState("");
+  // Selection is tracked by item id — stable, whitespace-free, never derived
+  // from content. cmdk's value prop is fed from this and cmdk's internal
+  // normalization (String.trim) can't change a uuid, so React state, cmdk's
+  // store and the DOM data-value attribute agree by construction.
+  //
   // Eager init — first render already has a valid selection so arrow keys
-  // work from the very first keystroke. Without this, the initial paint had
-  // selectedValue="" until a post-paint effect set it, and the very first
-  // arrow key (or any keystroke) could fall through to an empty selection.
-  const [selectedValue, setSelectedValue] = useState(() =>
-    items.length > 0 ? getItemValue(items[0]!) : "",
-  );
+  // work from the very first keystroke.
+  const [selectedId, setSelectedId] = useState(() => items[0]?.id ?? "");
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [confirmingReset, setConfirmingReset] = useState(false);
 
   const commandRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const mutationInFlightRef = useRef(false);
-  // See ClipboardPanel notes — guards cmdk auto-select during delete migration.
-  const pendingTargetValueRef = useRef<string | null>(null);
+
+  const isSearching = mode === "search";
+
+  // Search filtering happens HERE, not inside cmdk (shouldFilter={false}):
+  // the rendered list, keyboard navigation, delete-succession and the match
+  // highlighting all read the same array, so they can never disagree — and
+  // results keep their chronological/pinned order instead of cmdk's score
+  // order.
+  const visibleItems = useMemo(() => {
+    if (!isSearching || search.trim() === "") return items;
+    return items.filter((item) => fuzzyMatches(item.preview, search));
+  }, [items, isSearching, search]);
+
+  // Ref mirrors so action handlers stay referentially stable (ClipItem is
+  // memoized — unstable handlers would defeat that).
+  const selectedIdRef = useRef(selectedId);
+  selectedIdRef.current = selectedId;
+  const visibleItemsRef = useRef(visibleItems);
+  visibleItemsRef.current = visibleItems;
 
   // Focus management — robust against Tauri WebView focus timing.
   //
@@ -172,19 +181,57 @@ export function ClipboardPanel({
     return () => window.removeEventListener("focus", handleWindowFocus);
   }, [mode]);
 
-  // Keep selectedValue aligned with a real item so keyboard shortcuts never
-  // silently no-op on a stale or empty selection.
+  // Selection realignment — the single rule for every way a selected item can
+  // vanish from the rendered list (deleted under us by another flow, re-id'd
+  // by the monitor's dedup when identical content is copied again, filtered
+  // out by a narrowing search): keep the user's POSITION. The item now
+  // occupying the last known index is selected, clamped to the list end —
+  // never a snap back to the top. Because this always produces a value-prop
+  // change, cmdk re-syncs its internal store from us and the highlight
+  // follows.
+  //
+  // Deleting via d/click doesn't reach this effect: handleDelete migrates the
+  // selection before the item unmounts (see below).
+  const lastSelectedIndexRef = useRef(0);
   useEffect(() => {
-    if (pendingTargetValueRef.current !== null) return;
-    if (items.length === 0) {
-      if (selectedValue !== "") setSelectedValue("");
+    if (visibleItems.length === 0) {
+      if (selectedId !== "") setSelectedId("");
       return;
     }
-    if (selectedValue && items.some((item) => getItemValue(item) === selectedValue)) {
+    const index = visibleItems.findIndex((item) => item.id === selectedId);
+    if (index !== -1) {
+      lastSelectedIndexRef.current = index;
       return;
     }
-    setSelectedValue(getItemValue(items[0]!));
-  }, [items, selectedValue]);
+    const nearest =
+      visibleItems[Math.min(lastSelectedIndexRef.current, visibleItems.length - 1)]!;
+    setSelectedId(nearest.id);
+  }, [visibleItems, selectedId]);
+
+  // Last line of defence against React and cmdk disagreeing about what is
+  // selected.
+  //
+  // cmdk keeps its OWN copy of the selected value and there are paths where it
+  // rewrites that copy without being asked: it auto-selects the first row when
+  // the selected item unmounts, and it selects the clicked row on click. In
+  // controlled mode those writes land in cmdk's store, fire `onValueChange`,
+  // and return — cmdk's `value`-sync effect only re-runs when `props.value`
+  // changes, and it didn't. So with no listener the drift is PERMANENT: the
+  // highlight renders from cmdk's store while `d`/`p`/`e` act on React's id.
+  // That is how the shipped 0.1.2 build ended up deleting the top row while
+  // the user was looking at a different one.
+  //
+  // Following cmdk here trades a possible surprise cursor move for a
+  // guarantee that the row you see highlighted is the row a keystroke hits.
+  // The empty case is excluded on purpose: an empty selection belongs to the
+  // realignment effect below, which restores the remembered position instead
+  // of cmdk's "just take row 0".
+  const handleCmdkValueChange = useCallback((nextId: string) => {
+    const current = selectedIdRef.current;
+    if (current === "" || nextId === current) return;
+    if (!visibleItemsRef.current.some((item) => item.id === nextId)) return;
+    setSelectedId(nextId);
+  }, []);
 
   const handleSelect = useCallback(
     (item: ClipItemType) => {
@@ -193,89 +240,51 @@ export function ClipboardPanel({
     [onPaste],
   );
 
-  const getActiveItemValue = useCallback((): string => {
-    const selectedItem = commandRef.current?.querySelector('[cmdk-item][aria-selected="true"]');
-    if (selectedItem instanceof HTMLElement) {
-      return selectedItem.getAttribute("data-value") ?? selectedValue;
-    }
-
-    return selectedValue;
-  }, [selectedValue]);
-
-  const handleValueChange = useCallback((nextValue: string) => {
-    const pendingTarget = pendingTargetValueRef.current;
-    if (pendingTarget !== null && nextValue !== pendingTarget) {
-      return;
-    }
-    setSelectedValue(nextValue);
-  }, []);
-
-  const runLockedMutation = useCallback(async (operation: () => Promise<boolean>) => {
-    if (mutationInFlightRef.current) {
-      return false;
-    }
-
-    mutationInFlightRef.current = true;
-    try {
-      return await operation();
-    } finally {
-      mutationInFlightRef.current = false;
-    }
-  }, []);
-
   const handleDelete = useCallback(
-    (id: string, activeValue?: string) => {
-      void runLockedMutation(async () => {
-        const index = items.findIndex((item) => item.id === id);
-        if (index === -1) {
-          return false;
-        }
+    async (id: string): Promise<boolean> => {
+      const list = visibleItemsRef.current;
+      const previousSelectedId = selectedIdRef.current;
+      let migrated = false;
 
-        const item = items[index]!;
-        const targetingSelected =
-          (activeValue ?? selectedValue) === getItemValue(item);
-        let targetValue: string | null = null;
+      if (previousSelectedId === id) {
+        // Migrate the selection BEFORE the delete lands, and commit it
+        // synchronously: cmdk auto-selects the first row whenever the
+        // currently-selected item unmounts, so the row being deleted must
+        // already be unselected in the DOM by the time it unmounts. Without
+        // flushSync, React can batch this state change into the same commit
+        // as the list update (delete resolving fast), and cmdk's unmount
+        // cleanup still sees the deleted row as selected → highlight jumps
+        // to the top. Successor rule: the item that will occupy the same
+        // position in the *rendered* list — with an active search this is
+        // the next visible match, never a hidden item.
+        const index = list.findIndex((item) => item.id === id);
+        const remaining = list.filter((item) => item.id !== id);
+        const target = remaining[index] ?? remaining[index - 1];
+        flushSync(() => setSelectedId(target ? target.id : ""));
+        migrated = true;
+      }
 
-        if (targetingSelected) {
-          // "Stay in the same position, next term slides up" — pick the item
-          // that will occupy this index after removal. If the deleted item
-          // was the last, fall back to the previous one (cursor stays at the
-          // new last row).
-          const remaining = items.filter((existing) => existing.id !== id);
-          const target = remaining[index] ?? remaining[index - 1];
-          targetValue = target ? getItemValue(target) : "";
-          // Lock selection before the items refresh so cmdk's W() (auto-pick
-          // first when the selected item unmounts) can't slip a wrong value
-          // through onValueChange while the migration is in flight.
-          pendingTargetValueRef.current = targetValue;
-        }
-
-        try {
-          const didDelete = await onDelete(id);
-
-          if (targetingSelected && didDelete && targetValue !== null) {
-            // Items have refreshed — commit the migrated selection now.
-            setSelectedValue(targetValue);
-            // Release the lock after the React batch settles so cmdk's
-            // post-render onValueChange (if any) has already been suppressed.
-            await new Promise<void>((resolve) => setTimeout(resolve, 0));
-          }
-
-          return didDelete;
-        } finally {
-          if (targetingSelected && pendingTargetValueRef.current === targetValue) {
-            pendingTargetValueRef.current = null;
-          }
-        }
-      });
+      const didDelete = await onDelete(id);
+      if (!didDelete && migrated) {
+        // Rejected (a mutation was already in flight) or failed — the row is
+        // still there, so put the cursor back on it.
+        setSelectedId(previousSelectedId);
+      }
+      return didDelete;
     },
-    [items, onDelete, runLockedMutation, selectedValue],
+    [onDelete],
+  );
+
+  const handleDeleteFromRow = useCallback(
+    (id: string) => {
+      void handleDelete(id);
+    },
+    [handleDelete],
   );
 
   const handlePin = useCallback(
-    (id: string, pinned: boolean) =>
-      runLockedMutation(() => onPin(id, pinned)),
-    [onPin, runLockedMutation],
+    (id: string, pinned: boolean) => onPin(id, pinned),
+    [onPin],
   );
 
   const handleToggleExpand = useCallback((id: string) => {
@@ -296,80 +305,76 @@ export function ClipboardPanel({
         return;
       }
 
-      if (
-        (isBusy || mutationInFlightRef.current) &&
-        (e.key === "Enter" || e.key === "d" || e.key === "p" || e.key === "u")
-      ) {
+      // Mutating keys are gated while a backend mutation is in flight (the
+      // actions hook serializes and rejects re-entrant calls anyway — this
+      // just avoids surprising no-ops/paste-during-delete).
+      if (isBusy && (e.key === "Enter" || e.key === "d" || e.key === "p" || e.key === "u")) {
         e.preventDefault();
         e.stopPropagation();
         return;
       }
 
-      if (mode === "navigate") {
-        // ── Direct keyboard navigation (don't delegate to cmdk's Q()) ──
-        //
-        // We previously let cmdk handle Arrow/Home/End. Its Q() function
-        // walks `V()` (a live DOM queryAll) to find the current item, and
-        // under some combinations of disablePointerSelection + controlled
-        // value + display:none search input, that DOM walk would land on
-        // the wrong row (e.g. Down from Pinned[0] no-ops, Up from
-        // Pinned[last] jumps to Pinned[0]). The symptoms looked like
-        // "middle pinned items aren't in the navigation list."
-        //
-        // Solution: do the navigation ourselves against the React `items`
-        // array (which is the source of truth) and just push the chosen
-        // value into selectedValue. cmdk syncs the highlight from there.
-        if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Home" || e.key === "End") {
-          if (items.length === 0) {
-            e.preventDefault();
-            return;
-          }
-          e.preventDefault();
-          e.stopPropagation();
-          const currentIdx = items.findIndex(
-            (item) => getItemValue(item) === selectedValue,
-          );
-          let nextIdx: number;
-          if (e.key === "Home") {
-            nextIdx = 0;
-          } else if (e.key === "End") {
-            nextIdx = items.length - 1;
-          } else if (e.key === "ArrowDown") {
-            // Cmd+Down jumps to end (matches cmdk's Cmd+Down semantics)
-            if (e.metaKey) {
-              nextIdx = items.length - 1;
-            } else if (currentIdx === -1) {
-              nextIdx = 0;
-            } else if (currentIdx === items.length - 1) {
-              nextIdx = 0; // loop to top
-            } else {
-              nextIdx = currentIdx + 1;
-            }
-          } else {
-            // ArrowUp
-            if (e.metaKey) {
-              nextIdx = 0;
-            } else if (currentIdx === -1) {
-              nextIdx = items.length - 1;
-            } else if (currentIdx === 0) {
-              nextIdx = items.length - 1; // loop to bottom
-            } else {
-              nextIdx = currentIdx - 1;
-            }
-          }
-          const nextItem = items[nextIdx]!;
-          setSelectedValue(getItemValue(nextItem));
-          // Scroll the row into view — cmdk normally does this via its own
-          // selection path, but since we bypassed it we need to do it here.
-          requestAnimationFrame(() => {
-            const el = commandRef.current?.querySelector<HTMLElement>(
-              `[cmdk-item][data-value="${CSS.escape(getItemValue(nextItem))}"]`,
-            );
-            el?.scrollIntoView({ block: "nearest" });
-          });
+      // ── Direct keyboard navigation (don't delegate to cmdk's Q()) ──
+      //
+      // We previously let cmdk handle Arrow/Home/End. Its Q() function walks
+      // a live DOM queryAll to find the current item, and under some
+      // combinations of disablePointerSelection + controlled value +
+      // display:none search input, that DOM walk would land on the wrong
+      // row. So navigation runs against the same `visibleItems` array the
+      // list renders from, in BOTH modes; cmdk only syncs its highlight from
+      // the controlled value. Home/End stay with the input caret in search
+      // mode.
+      const isArrow = e.key === "ArrowDown" || e.key === "ArrowUp";
+      const isJump = (e.key === "Home" || e.key === "End") && mode === "navigate";
+      if (isArrow || isJump) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (visibleItems.length === 0) {
           return;
         }
+        const currentIdx = visibleItems.findIndex((item) => item.id === selectedId);
+        let nextIdx: number;
+        if (e.key === "Home") {
+          nextIdx = 0;
+        } else if (e.key === "End") {
+          nextIdx = visibleItems.length - 1;
+        } else if (e.key === "ArrowDown") {
+          // Cmd+Down jumps to end (matches cmdk's Cmd+Down semantics)
+          if (e.metaKey) {
+            nextIdx = visibleItems.length - 1;
+          } else if (currentIdx === -1) {
+            nextIdx = 0;
+          } else if (currentIdx === visibleItems.length - 1) {
+            nextIdx = 0; // loop to top
+          } else {
+            nextIdx = currentIdx + 1;
+          }
+        } else {
+          // ArrowUp
+          if (e.metaKey) {
+            nextIdx = 0;
+          } else if (currentIdx === -1) {
+            nextIdx = visibleItems.length - 1;
+          } else if (currentIdx === 0) {
+            nextIdx = visibleItems.length - 1; // loop to bottom
+          } else {
+            nextIdx = currentIdx - 1;
+          }
+        }
+        const nextItem = visibleItems[nextIdx]!;
+        setSelectedId(nextItem.id);
+        // Scroll the row into view — cmdk normally does this via its own
+        // selection path, but since we bypassed it we need to do it here.
+        requestAnimationFrame(() => {
+          const el = commandRef.current?.querySelector<HTMLElement>(
+            `[cmdk-item][data-value="${CSS.escape(nextItem.id)}"]`,
+          );
+          el?.scrollIntoView({ block: "nearest" });
+        });
+        return;
+      }
 
+      if (mode === "navigate") {
         if (e.key === "s") {
           e.preventDefault();
           e.stopPropagation();
@@ -380,16 +385,13 @@ export function ClipboardPanel({
         if (e.key === "d") {
           e.preventDefault();
           e.stopPropagation();
-          const activeValue = getActiveItemValue();
-          const item = findItemByValue(items, activeValue);
-          if (!item) return;
-          handleDelete(item.id, activeValue);
+          if (selectedId) void handleDelete(selectedId);
           return;
         }
         if (e.key === "p") {
           e.preventDefault();
           e.stopPropagation();
-          const item = findItemByValue(items, getActiveItemValue());
+          const item = visibleItems.find((i) => i.id === selectedId);
           if (item) {
             void handlePin(item.id, !item.pinned);
           }
@@ -398,8 +400,8 @@ export function ClipboardPanel({
         if (e.key === "e") {
           e.preventDefault();
           e.stopPropagation();
-          const item = findItemByValue(items, getActiveItemValue());
-          if (item && item.clipType !== "image" && item.content.length > item.preview.length) {
+          const item = visibleItems.find((i) => i.id === selectedId);
+          if (item && canExpandItem(item)) {
             handleToggleExpand(item.id);
           }
           return;
@@ -436,31 +438,32 @@ export function ClipboardPanel({
     [
       canUndo,
       handleDelete,
-      getActiveItemValue,
+      handlePin,
       handleToggleExpand,
       isBusy,
-      items,
       mode,
       onHide,
       onUndo,
-      handlePin,
-      selectedValue,
+      selectedId,
+      visibleItems,
     ],
   );
 
   const { pinnedItems, recentItems } = useMemo(() => {
     const pinned: ClipItemType[] = [];
     const recent: ClipItemType[] = [];
-    for (const item of items) {
+    for (const item of visibleItems) {
       if (item.pinned) pinned.push(item);
       else recent.push(item);
     }
     return { pinnedItems: pinned, recentItems: recent };
-  }, [items]);
+  }, [visibleItems]);
 
   // Drag-and-drop reorder. onReorder is optional — when absent (e.g. unit
   // tests that don't wire reorder), drag handlers stay no-op and the grip
   // handle is hidden via the falsy section/handler check in ClipItem.
+  // Disabled while searching: committing an order computed from a filtered
+  // subset would scramble the full list.
   const dragCommit = useCallback(
     async (orderedIds: string[], pinnedIds: string[]) => {
       if (!onReorder) return false;
@@ -486,8 +489,7 @@ export function ClipboardPanel({
 
   const itemCount = items.length;
   const canClear = items.some((i) => !i.pinned);
-  const isSearching = mode === "search";
-  const reorderEnabled = Boolean(onReorder);
+  const reorderEnabled = Boolean(onReorder) && !isSearching;
 
   return (
     <Command
@@ -495,14 +497,20 @@ export function ClipboardPanel({
       tabIndex={-1}
       className="flex h-full flex-col bg-transparent p-0 outline-none"
       loop
+      // Filtering and navigation are owned by this component (see
+      // visibleItems); cmdk renders what it's given and syncs the highlight
+      // from the controlled value.
+      shouldFilter={false}
       // Keyboard is the source of truth for selection — disable cmdk's
       // pointer-move auto-select so the mouse cursor's accidental position
       // can't hijack the keyboard cursor (especially during the async window
       // right after a delete/pin, where the list re-flows under the cursor).
       // Click-to-paste still works (that's a separate handler).
       disablePointerSelection
-      value={selectedValue}
-      onValueChange={handleValueChange}
+      value={selectedId}
+      // Not decorative — see handleCmdkValueChange: without a listener,
+      // cmdk's self-initiated selection changes desync from React silently.
+      onValueChange={handleCmdkValueChange}
       onKeyDown={handleKeyDown}
     >
       {/* Drag region — the strip you grab to move the window */}
@@ -533,7 +541,11 @@ export function ClipboardPanel({
             </span>
           )}
         </div>
-        <SettingsDialog onClearAll={onClearAll} openRequestId={settingsRequestId} />
+        <SettingsDialog
+          onClearAll={onClearAll}
+          openRequestId={settingsRequestId}
+          settingsApi={settingsApi}
+        />
       </div>
 
       {/* Search input — always mounted (so React state can clear it
@@ -576,17 +588,79 @@ export function ClipboardPanel({
         }}
       >
         <CommandEmpty className="flex flex-col items-center justify-center gap-3 px-6 py-14 text-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-surface-soft ring-[0.5px] ring-inset ring-border-subtle">
-            <ClipboardIcon className="size-5 text-foreground-faint" strokeWidth={1.5} />
-          </div>
-          <div className="flex flex-col gap-1">
-            <span className="text-[12px] font-medium text-foreground-muted">
-              {search ? "No matches" : "Clipboard is empty"}
-            </span>
-            <span className="text-[10.5px] text-foreground-faint">
-              {search ? "Try a different query" : "Copy anything to get started"}
-            </span>
-          </div>
+          {historyError && !search ? (
+            <>
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-destructive/10 ring-[0.5px] ring-inset ring-destructive/20">
+                <AlertTriangleIcon className="size-5 text-destructive" strokeWidth={1.5} />
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="text-[12px] font-medium text-foreground-muted">
+                  History unavailable
+                </span>
+                <span className="max-w-[240px] break-words text-[10.5px] text-foreground-faint">
+                  {historyError}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                {onRetryHistory && !confirmingReset && (
+                  <button
+                    type="button"
+                    onClick={() => void onRetryHistory()}
+                    className="flex h-6 items-center rounded-md bg-surface-soft px-2 text-[10.5px] font-medium text-foreground-muted ring-[0.5px] ring-inset ring-border-subtle transition-colors hover:bg-surface-hover hover:text-foreground"
+                  >
+                    Retry
+                  </button>
+                )}
+                {onResetHistory &&
+                  (confirmingReset ? (
+                    <>
+                      <span className="text-[10.5px] text-foreground-faint">
+                        Erase stored history?
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmingReset(false)}
+                        className="flex h-6 items-center rounded-md px-2 text-[10.5px] font-medium text-foreground-muted transition-colors hover:bg-surface-hover"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setConfirmingReset(false);
+                          void onResetHistory();
+                        }}
+                        className="flex h-6 items-center rounded-md bg-destructive/10 px-2 text-[10.5px] font-medium text-destructive transition-colors hover:bg-destructive/20"
+                      >
+                        Reset
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmingReset(true)}
+                      className="flex h-6 items-center rounded-md px-2 text-[10.5px] font-medium text-destructive/80 transition-colors hover:bg-destructive/10 hover:text-destructive"
+                    >
+                      Reset history…
+                    </button>
+                  ))}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-surface-soft ring-[0.5px] ring-inset ring-border-subtle">
+                <ClipboardIcon className="size-5 text-foreground-faint" strokeWidth={1.5} />
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="text-[12px] font-medium text-foreground-muted">
+                  {search ? "No matches" : "Clipboard is empty"}
+                </span>
+                <span className="text-[10.5px] text-foreground-faint">
+                  {search ? "Try a different query" : "Copy anything to get started"}
+                </span>
+              </div>
+            </>
+          )}
         </CommandEmpty>
 
         {pinnedItems.length > 0 && (
@@ -597,7 +671,7 @@ export function ClipboardPanel({
                 item={item}
                 index={index}
                 onSelect={handleSelect}
-                onDelete={handleDelete}
+                onDelete={handleDeleteFromRow}
                 onPin={handlePin}
                 isExpanded={expandedIds.has(item.id)}
                 onToggleExpand={handleToggleExpand}
@@ -622,7 +696,7 @@ export function ClipboardPanel({
               item={item}
               index={pinnedItems.length + index}
               onSelect={handleSelect}
-              onDelete={handleDelete}
+              onDelete={handleDeleteFromRow}
               onPin={handlePin}
               isExpanded={expandedIds.has(item.id)}
               onToggleExpand={handleToggleExpand}

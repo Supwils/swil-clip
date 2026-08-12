@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { AppSettings } from "@/types/settings";
 import { DEFAULT_SETTINGS } from "@/types/settings";
 
-interface UseSettingsReturn {
+export interface UseSettingsReturn {
   settings: AppSettings;
   isLoading: boolean;
   updateGlobalShortcut: (shortcut: string) => Promise<void>;

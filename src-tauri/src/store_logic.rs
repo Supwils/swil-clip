@@ -6,10 +6,23 @@ pub fn apply_dedup(items: &mut Vec<ClipItem>, new_item: &ClipItem) {
     });
 }
 
+/// Trim the history down to `max` UNPINNED entries, keeping the ones nearest
+/// the front (callers hand us a newest-first list) and preserving order.
+///
+/// Pinned entries are exempt and never counted. That is what the Settings copy
+/// promises — "pinned items are always preserved" — and what a blind
+/// `truncate(max)` quietly broke: over a pinned-first list, once the pin count
+/// passed the cap the overflow pins were the ones deleted, which is the exact
+/// opposite of what pinning is for.
 pub fn enforce_max_history(items: &mut Vec<ClipItem>, max: usize) {
-    if items.len() > max {
-        items.truncate(max);
-    }
+    let mut unpinned_kept = 0usize;
+    items.retain(|item| {
+        if item.pinned {
+            return true;
+        }
+        unpinned_kept += 1;
+        unpinned_kept <= max
+    });
 }
 
 #[cfg(test)]
@@ -72,6 +85,64 @@ mod tests {
         let mut items = vec![make_item("a", "a"), make_item("b", "b")];
         enforce_max_history(&mut items, 50);
         assert_eq!(items.len(), 2);
+    }
+
+    #[test]
+    fn test_enforce_max_never_evicts_pinned() {
+        // 60 pinned items against a cap of 50: the old blind truncate deleted
+        // ten of them.
+        let mut items: Vec<ClipItem> = (0..60)
+            .map(|i| {
+                let mut item = make_item(&i.to_string(), &i.to_string());
+                item.pinned = true;
+                item
+            })
+            .collect();
+
+        enforce_max_history(&mut items, 50);
+
+        assert_eq!(items.len(), 60, "pinned items must all survive the cap");
+        assert!(items.iter().all(|i| i.pinned));
+    }
+
+    #[test]
+    fn test_enforce_max_counts_unpinned_only() {
+        // Pinned-first, the shape get_history hands us.
+        let mut items: Vec<ClipItem> = (0..3)
+            .map(|i| {
+                let mut item = make_item(&format!("pin-{i}"), &format!("pin-{i}"));
+                item.pinned = true;
+                item
+            })
+            .chain((0..10).map(|i| make_item(&format!("recent-{i}"), &format!("recent-{i}"))))
+            .collect();
+
+        enforce_max_history(&mut items, 4);
+
+        let ids: Vec<&str> = items.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            vec![
+                "pin-0", "pin-1", "pin-2", "recent-0", "recent-1", "recent-2", "recent-3",
+            ],
+            "all 3 pins plus the 4 newest unpinned, in order"
+        );
+    }
+
+    #[test]
+    fn test_enforce_max_keeps_a_new_clip_even_when_pins_exceed_the_cap() {
+        // add_item's shape: the fresh clip is at index 0, ahead of the pins.
+        let mut items = vec![make_item("fresh", "fresh")];
+        items.extend((0..15).map(|i| {
+            let mut item = make_item(&format!("pin-{i}"), &format!("pin-{i}"));
+            item.pinned = true;
+            item
+        }));
+
+        enforce_max_history(&mut items, 10);
+
+        assert_eq!(items[0].id, "fresh", "the just-copied item must survive");
+        assert_eq!(items.len(), 16);
     }
 
     #[test]

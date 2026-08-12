@@ -65,23 +65,32 @@ impl ClipboardMonitor {
             }
 
             let type_count = types.count() as usize;
-            let mut has_string = false;
-            let mut has_image = false;
+            let mut declared_types: Vec<String> = Vec::with_capacity(type_count);
 
             for i in 0..type_count {
                 let t: id = types.objectAtIndex(i as u64);
                 if t == nil {
                     continue;
                 }
-
-                let t_str = CStr::from_ptr(t.UTF8String()).to_string_lossy();
-                if t_str.contains("public.utf8-plain-text") {
-                    has_string = true;
-                }
-                if t_str.contains("public.tiff") || t_str.contains("public.png") {
-                    has_image = true;
-                }
+                declared_types.push(CStr::from_ptr(t.UTF8String()).to_string_lossy().into_owned());
             }
+
+            // Before touching the payload: some producers explicitly ask
+            // clipboard managers not to record this generation (password
+            // managers above all). The change count is already advanced, so
+            // skipping here also means we never revisit it.
+            if super::types::is_excluded_pasteboard(&declared_types) {
+                log::info!("Skipping pasteboard marked as concealed/transient");
+                let _: () = msg_send![pool, release];
+                return;
+            }
+
+            let has_string = declared_types
+                .iter()
+                .any(|t| t.contains("public.utf8-plain-text"));
+            let has_image = declared_types
+                .iter()
+                .any(|t| t.contains("public.tiff") || t.contains("public.png"));
 
             if has_string {
                 let text_type = NSString::alloc(nil).init_str("public.utf8-plain-text");

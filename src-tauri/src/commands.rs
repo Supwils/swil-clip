@@ -21,6 +21,11 @@ pub fn clear_history(app_handle: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn reset_history(app_handle: AppHandle) -> Result<(), String> {
+    store::reset_history(&app_handle)
+}
+
+#[tauri::command]
 pub fn paste_item(app_handle: AppHandle, id: String) -> Result<(), String> {
     let items = store::get_history(&app_handle)?;
     let item = items
@@ -122,21 +127,36 @@ pub fn update_global_shortcut(app_handle: AppHandle, shortcut_str: String) -> Re
 
     // Load current settings to know the old shortcut
     let mut current_settings = crate::settings::get_settings(&app_handle)?;
+    let old_shortcut =
+        crate::shortcut_util::parse_shortcut(&current_settings.global_shortcut).ok();
 
-    // Unregister the old shortcut (best-effort — ignore if it was already gone)
-    if let Ok(old_shortcut) = crate::shortcut_util::parse_shortcut(&current_settings.global_shortcut) {
-        app_handle.global_shortcut().unregister(old_shortcut).ok();
+    let shortcuts = app_handle.global_shortcut();
+    let is_same = old_shortcut.map(|o| o.id() == new_shortcut.id()).unwrap_or(false);
+
+    if !is_same {
+        // Register the NEW shortcut while the old one is still active — if
+        // registration fails (combo taken or unsupported) the app must stay
+        // reachable via the old hotkey. Only then drop the old registration.
+        shortcuts
+            .register(new_shortcut)
+            .map_err(|e| format!("Failed to register shortcut: {}", e))?;
+        if let Some(old) = old_shortcut {
+            shortcuts.unregister(old).ok();
+        }
     }
 
-    // Register the new shortcut
-    app_handle
-        .global_shortcut()
-        .register(new_shortcut)
-        .map_err(|e| format!("Failed to register shortcut: {}", e))?;
-
-    // Persist
     current_settings.global_shortcut = shortcut_str;
-    crate::settings::save_settings(&app_handle, &current_settings)?;
+    if let Err(e) = crate::settings::save_settings(&app_handle, &current_settings) {
+        // Keep the live registration in sync with what is persisted: undo the
+        // swap so a restart re-registers the same shortcut settings still hold.
+        if !is_same {
+            shortcuts.unregister(new_shortcut).ok();
+            if let Some(old) = old_shortcut {
+                shortcuts.register(old).ok();
+            }
+        }
+        return Err(e);
+    }
 
     Ok(())
 }

@@ -229,8 +229,7 @@ body {
   color: var(--color-accent);
 }
 
-.clip-item[data-selected="true"] .clip-meta,
-.clip-item[data-selected="true"] .shortcut-badge {
+.clip-item[data-selected="true"] .clip-meta {
   color: var(--color-foreground-muted);
 }
 

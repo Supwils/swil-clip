@@ -1,11 +1,28 @@
-use tauri::AppHandle;
+use std::sync::Mutex;
+use tauri::{AppHandle, Manager};
 use tauri_plugin_store::StoreExt;
 
 use crate::clipboard::types::ClipItem;
+use crate::crypto;
 use crate::settings;
 
 const STORE_PATH: &str = "clipboard_history.json";
+/// Legacy plaintext key — read for one-time migration, then removed.
 const STORE_KEY: &str = "history";
+/// Current key: base64(nonce ‖ AES-256-GCM ciphertext) of the history array.
+const STORE_KEY_ENC: &str = "history_enc";
+
+/// Process-wide cache of the decrypted history, managed as Tauri state.
+///
+/// The backend is the single writer (poll thread + UI commands, both routed
+/// through this module), so after the first disk load every read is served
+/// from memory — without this, each clipboard copy and each UI mutation paid
+/// a full decrypt+parse of the entire blob (and the frontend's post-mutation
+/// refresh a second one), which gets material once images live in the array.
+/// Holds the last successfully persisted state; never populated from a
+/// failed load, so a transient error can't mask real data.
+#[derive(Default)]
+pub struct HistoryCache(Mutex<Option<Vec<ClipItem>>>);
 
 fn current_max_history(app_handle: &AppHandle) -> usize {
     settings::get_settings(app_handle)
@@ -14,14 +31,15 @@ fn current_max_history(app_handle: &AppHandle) -> usize {
 }
 
 pub fn get_history(app_handle: &AppHandle) -> Result<Vec<ClipItem>, String> {
-    let store = app_handle
-        .store(STORE_PATH)
-        .map_err(|e| format!("Failed to open store: {}", e))?;
+    let cache = app_handle.state::<HistoryCache>();
+    let mut guard = cache.0.lock().unwrap_or_else(|e| e.into_inner());
 
-    let mut items: Vec<ClipItem> = store
-        .get(STORE_KEY)
-        .and_then(|v| serde_json::from_value(v).ok())
-        .unwrap_or_default();
+    if guard.is_none() {
+        *guard = Some(load_history_from_disk(app_handle)?);
+    }
+
+    let mut items = guard.as_ref().expect("cache filled above").clone();
+    drop(guard);
 
     // Stable sort: pinned items float to the top, relative order preserved within each group.
     items.sort_by(|a, b| b.pinned.cmp(&a.pinned));
@@ -29,16 +47,68 @@ pub fn get_history(app_handle: &AppHandle) -> Result<Vec<ClipItem>, String> {
     Ok(items)
 }
 
+fn load_history_from_disk(app_handle: &AppHandle) -> Result<Vec<ClipItem>, String> {
+    let store = app_handle
+        .store(STORE_PATH)
+        .map_err(|e| format!("Failed to open store: {}", e))?;
+
+    if let Some(enc) = store.get(STORE_KEY_ENC) {
+        // Encrypted path. Propagate any decrypt/parse error rather than
+        // returning empty — a transient failure must never let a later save
+        // overwrite good data with a blank history.
+        let b64 = enc.as_str().ok_or("Corrupt encrypted history blob")?;
+        let key = crypto::history_key()?;
+        let bytes = crypto::decrypt(b64, &key)?;
+        serde_json::from_slice(&bytes).map_err(|e| format!("Failed to parse history: {}", e))
+    } else if let Some(v) = store.get(STORE_KEY) {
+        // Legacy plaintext (pre-encryption builds); the next save_history
+        // re-persists it encrypted and drops the plaintext key. Strict parse
+        // for the same overwrite-protection reason as above: this read feeds
+        // a one-shot, irreversible migration, so silently loading a corrupt
+        // value as an empty list would destroy the only copy on next save.
+        serde_json::from_value(v).map_err(|e| format!("Failed to parse legacy history: {}", e))
+    } else {
+        Ok(Vec::new())
+    }
+}
+
 pub fn save_history(app_handle: &AppHandle, items: &[ClipItem]) -> Result<(), String> {
     let store = app_handle
         .store(STORE_PATH)
         .map_err(|e| format!("Failed to open store: {}", e))?;
 
-    let value = serde_json::to_value(items)
+    let json = serde_json::to_vec(items)
         .map_err(|e| format!("Failed to serialize history: {}", e))?;
+    let key = crypto::history_key()?;
+    let blob = crypto::encrypt(&json, &key)?;
 
-    store.set(STORE_KEY, value);
+    store.set(STORE_KEY_ENC, blob);
+    // Drop any leftover plaintext copy from a pre-encryption build so secrets
+    // never linger on disk after migration.
+    store.delete(STORE_KEY);
     store.save().map_err(|e| format!("Failed to save store: {}", e))?;
+
+    let cache = app_handle.state::<HistoryCache>();
+    *cache.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(items.to_vec());
+
+    Ok(())
+}
+
+/// Last-resort recovery: wipe the persisted history (both encrypted and
+/// legacy plaintext keys) WITHOUT touching the crypto layer, so it works even
+/// when the Keychain is unreachable — the one situation where clear_history
+/// (which must encrypt an empty list) cannot.
+pub fn reset_history(app_handle: &AppHandle) -> Result<(), String> {
+    let store = app_handle
+        .store(STORE_PATH)
+        .map_err(|e| format!("Failed to open store: {}", e))?;
+
+    store.delete(STORE_KEY_ENC);
+    store.delete(STORE_KEY);
+    store.save().map_err(|e| format!("Failed to save store: {}", e))?;
+
+    let cache = app_handle.state::<HistoryCache>();
+    *cache.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(Vec::new());
 
     Ok(())
 }
@@ -141,15 +211,16 @@ pub fn reorder_items(
     save_history(app_handle, &reordered)
 }
 
-/// Truncate the persisted history to `new_max` items if it currently exceeds
-/// that cap. Called after the user lowers their history-size setting.
+/// Trim the persisted history down to `new_max` unpinned items. Called after
+/// the user lowers their history-size setting; pinned items are exempt from
+/// the cap (see `store_logic::enforce_max_history`), so lowering it can be a
+/// no-op even when the total item count is well above the new value.
 pub fn truncate_history(app_handle: &AppHandle, new_max: usize) -> Result<(), String> {
     let mut items = get_history(app_handle)?;
-    if items.len() <= new_max {
+    let before = items.len();
+    crate::store_logic::enforce_max_history(&mut items, new_max);
+    if items.len() == before {
         return Ok(());
     }
-    // Keep pinned items first (they're already at the top after get_history's
-    // stable sort), then fill remaining slots with the newest unpinned items.
-    crate::store_logic::enforce_max_history(&mut items, new_max);
     save_history(app_handle, &items)
 }

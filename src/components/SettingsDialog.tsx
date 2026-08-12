@@ -7,10 +7,9 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-  DialogClose,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { useSettings } from "@/hooks/useSettings";
+import type { UseSettingsReturn } from "@/hooks/useSettings";
 import { DEFAULT_GLOBAL_SHORTCUT } from "@/constants";
 import { HISTORY_CAP_CHOICES } from "@/types/settings";
 
@@ -180,14 +179,18 @@ interface SettingsDialogProps {
   onClearAll: () => Promise<boolean>;
   /** Incrementing counter — when it changes, the dialog opens. */
   openRequestId?: number;
+  /** The app-wide settings instance (owned by App) — shared, not re-fetched,
+   *  so changes made here are immediately reflected everywhere. */
+  settingsApi: UseSettingsReturn;
 }
 
 export function SettingsDialog({
   onClearAll,
   openRequestId,
+  settingsApi,
 }: SettingsDialogProps): React.ReactElement {
   const { settings, isLoading, updateGlobalShortcut, updateMaxHistory, updateAutoPaste } =
-    useSettings();
+    settingsApi;
   const [open, setOpen] = useState(false);
   const [pendingShortcut, setPendingShortcut] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -218,6 +221,9 @@ export function SettingsDialog({
     try {
       await updateGlobalShortcut(pendingShortcut);
       setPendingShortcut(null);
+      // Close only on success — a failed save must keep the dialog open so
+      // the error below is actually visible and the recording isn't lost.
+      setOpen(false);
     } catch {
       setError("This shortcut is already in use or unsupported. Try another.");
     } finally {
@@ -329,8 +335,8 @@ export function SettingsDialog({
               disabled={isLoading || savingHistorySize}
             />
             <p className="text-[11px] leading-snug text-foreground-faint">
-              How many items to keep. Lowering immediately trims older items
-              (pinned items are always preserved).
+              How many unpinned items to keep. Lowering immediately trims the
+              oldest. Pinned items never count toward this and are always kept.
             </p>
           </section>
 
@@ -418,18 +424,14 @@ export function SettingsDialog({
 
         <DialogFooter showCloseButton className="mt-1">
           {pendingShortcut && (
-            <DialogClose
-              render={
-                <Button
-                  onClick={handleSave}
-                  disabled={saving}
-                  size="sm"
-                  className="min-w-16 bg-accent text-accent-foreground hover:bg-accent/90"
-                />
-              }
+            <Button
+              onClick={() => void handleSave()}
+              disabled={saving}
+              size="sm"
+              className="min-w-16 bg-accent text-accent-foreground hover:bg-accent/90"
             >
               {saving ? "Saving…" : "Save shortcut"}
-            </DialogClose>
+            </Button>
           )}
         </DialogFooter>
       </DialogContent>

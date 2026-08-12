@@ -24,8 +24,12 @@ function isEditableTarget(target: EventTarget | null): boolean {
 }
 
 export function App(): React.ReactElement {
-  const { settings } = useSettings();
-  const { items, refresh } = useClipboardHistory(settings.maxHistory);
+  // Single settings instance for the whole app — SettingsDialog receives this
+  // via props, so updates made there are immediately visible here (footer
+  // hints, paste behavior) instead of going stale until restart.
+  const settingsApi = useSettings();
+  const { settings } = settingsApi;
+  const { items, refresh, error: historyError } = useClipboardHistory();
   const {
     isBusy,
     pasteItem,
@@ -69,6 +73,17 @@ export function App(): React.ReactElement {
     return restoreItems(batch);
   }, [popUndo, restoreItems]);
 
+  const handleResetHistory = useCallback(async (): Promise<boolean> => {
+    try {
+      await invoke("reset_history");
+      await refresh();
+      return true;
+    } catch (error) {
+      console.error("Failed to reset history:", error);
+      return false;
+    }
+  }, [refresh]);
+
   const handleHide = useCallback(() => {
     // Hide first, then bounce focus back to the app that owned the caret
     // when we opened. macOS panel windows (decorations:false +
@@ -98,7 +113,9 @@ export function App(): React.ReactElement {
       if (event.altKey && !event.metaKey && !event.shiftKey && !event.ctrlKey) {
         const num = parseInt(event.key, 10);
         if (num >= 1 && num <= QUICK_PASTE_LIMIT) {
-          const target = items[num - 1];
+          // Read through the ref so the listener isn't torn down and
+          // re-registered on every clipboard-changed event.
+          const target = itemsRef.current[num - 1];
           if (target) {
             event.preventDefault();
             void pasteItem(target);
@@ -109,7 +126,7 @@ export function App(): React.ReactElement {
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [isBusy, items, pasteItem]);
+  }, [isBusy, pasteItem]);
 
   useEffect(() => {
     const appWindow = getCurrentWindow();
@@ -155,6 +172,10 @@ export function App(): React.ReactElement {
         isBusy={isBusy}
         settingsRequestId={settingsRequestId}
         autoPaste={settings.autoPaste}
+        settingsApi={settingsApi}
+        historyError={historyError}
+        onRetryHistory={refresh}
+        onResetHistory={handleResetHistory}
       />
     </div>
   );

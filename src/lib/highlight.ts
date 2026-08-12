@@ -13,6 +13,25 @@ import { createElement, Fragment } from "react";
  * Falls back to returning `text` unchanged when `query` is empty, no chars
  * matched, or every char matched (avoiding pointless splits).
  */
+/**
+ * Case-insensitive, order-preserving fuzzy match — the exact matcher behind
+ * `renderHighlightedText`, so what the search filter keeps and what the
+ * highlight marks can never disagree. Empty/whitespace queries match all.
+ */
+export function fuzzyMatches(text: string, query: string): boolean {
+  const normalizedQuery = query.replace(/\s+/g, "").toLowerCase();
+  if (normalizedQuery.length === 0) return true;
+
+  const lowerText = text.toLowerCase();
+  let qi = 0;
+  for (let ti = 0; ti < lowerText.length && qi < normalizedQuery.length; ti++) {
+    if (lowerText[ti] === normalizedQuery[qi]) {
+      qi++;
+    }
+  }
+  return qi === normalizedQuery.length;
+}
+
 export function renderHighlightedText(text: string, query: string | undefined): ReactNode {
   if (!query) return text;
 

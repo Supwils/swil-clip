@@ -3,15 +3,19 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ClipboardPanel } from "@/components/ClipboardPanel";
 import type { ClipItem } from "@/types/clipboard";
+import type { UseSettingsReturn } from "@/hooks/useSettings";
 import { PANEL_DRAG_REGION_HEIGHT_PX } from "@/constants";
+import { DEFAULT_SETTINGS } from "@/types/settings";
 
-vi.mock("@/hooks/useSettings", () => ({
-  useSettings: () => ({
-    settings: { globalShortcut: "cmd+shift+v" },
+function makeSettingsApi(): UseSettingsReturn {
+  return {
+    settings: DEFAULT_SETTINGS,
     isLoading: false,
     updateGlobalShortcut: vi.fn().mockResolvedValue(undefined),
-  }),
-}));
+    updateMaxHistory: vi.fn().mockResolvedValue(undefined),
+    updateAutoPaste: vi.fn().mockResolvedValue(undefined),
+  };
+}
 
 const items: ClipItem[] = [
   {
@@ -75,6 +79,7 @@ function renderPanel(overrides: Partial<ComponentProps<typeof ClipboardPanel>> =
       onPin={onPin}
       onHide={onHide}
       isBusy={false}
+      settingsApi={makeSettingsApi()}
       {...overrides}
     />,
   );
@@ -168,6 +173,7 @@ describe("ClipboardPanel", () => {
           onPin={vi.fn().mockResolvedValue(true)}
           onHide={vi.fn()}
           isBusy={false}
+          settingsApi={makeSettingsApi()}
         />
       );
     }
@@ -230,6 +236,7 @@ describe("ClipboardPanel", () => {
           onPin={vi.fn().mockResolvedValue(true)}
           onHide={vi.fn()}
           isBusy={false}
+          settingsApi={makeSettingsApi()}
         />
       );
     }
@@ -272,6 +279,7 @@ describe("ClipboardPanel", () => {
           onPin={vi.fn().mockResolvedValue(true)}
           onHide={vi.fn()}
           isBusy={false}
+          settingsApi={makeSettingsApi()}
         />
       );
     }
@@ -295,6 +303,75 @@ describe("ClipboardPanel", () => {
     await waitFor(() => {
       expect(screen.queryByText("third item")).not.toBeInTheDocument();
       expect(getSelectedItem(container)).toHaveTextContent("world");
+    });
+  });
+
+  // Regression guard: with a search active, the delete successor must be
+  // picked from the FILTERED list — picking by index from the full items
+  // array could select a hidden row, leaving the visible highlight on the
+  // first item and keyboard actions targeting an invisible one.
+  it("keeps selection among visible matches when deleting during a search", async () => {
+    const searchItems: ClipItem[] = [
+      { id: "s-1", clipType: "text", content: "apple pie", preview: "apple pie", timestamp: 1 },
+      { id: "s-2", clipType: "text", content: "banana", preview: "banana", timestamp: 2 },
+      { id: "s-3", clipType: "text", content: "apple tart", preview: "apple tart", timestamp: 3 },
+      { id: "s-4", clipType: "text", content: "cherry", preview: "cherry", timestamp: 4 },
+    ];
+
+    function Harness(): ReactElement {
+      const [currentItems, setCurrentItems] = useState(searchItems);
+
+      return (
+        <ClipboardPanel
+          items={currentItems}
+          onPaste={vi.fn().mockResolvedValue(true)}
+          onDelete={vi.fn(async (id: string) => {
+            setCurrentItems((prev) => prev.filter((item) => item.id !== id));
+            return true;
+          })}
+          onClearAll={vi.fn().mockResolvedValue(true)}
+          onClearUnpinned={vi.fn().mockResolvedValue(true)}
+          onUndo={vi.fn().mockResolvedValue(true)}
+          canUndo={false}
+          onPin={vi.fn().mockResolvedValue(true)}
+          onHide={vi.fn()}
+          isBusy={false}
+          settingsApi={makeSettingsApi()}
+        />
+      );
+    }
+
+    const user = userEvent.setup();
+    const { container } = render(<Harness />);
+    const root = getCommandRoot(container);
+
+    await waitFor(() => {
+      expect(getSelectedItem(container)).toHaveTextContent("apple pie");
+    });
+
+    fireEvent.keyDown(root, { key: "s" });
+    const input = screen.getByPlaceholderText("Search clipboard...");
+    await waitFor(() => expect(input).toHaveFocus());
+    await user.type(input, "apple");
+
+    // Only the two apple items are rendered; selection stays on the first.
+    await waitFor(() => {
+      expect(screen.queryByText("banana")).not.toBeInTheDocument();
+      expect(getSelectedItem(container)).toHaveTextContent("apple pie");
+    });
+
+    // In search mode `d` types into the input, so delete via the selected
+    // row's delete button (same handleDelete path as the shortcut).
+    const deleteButton = getSelectedItem(container).querySelector(
+      'button[aria-label="Delete item"]',
+    );
+    expect(deleteButton).not.toBeNull();
+    fireEvent.click(deleteButton!);
+
+    // Successor is the next VISIBLE match (apple tart), not the hidden banana.
+    await waitFor(() => {
+      expect(screen.queryByText("apple pie")).not.toBeInTheDocument();
+      expect(getSelectedItem(container)).toHaveTextContent("apple tart");
     });
   });
 });
