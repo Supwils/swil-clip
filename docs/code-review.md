@@ -83,7 +83,6 @@ Two pieces of harness exist specifically to stop that from recurring:
 | [SC-16](#sc-16) | No size cap on captured clips | Reliability |
 | [SC-17](#sc-17) | Image dimensions are dead UI — the field is never populated | Dead code |
 | [SC-18](#sc-18) | `appName` is carried everywhere and set nowhere | Dead code |
-| [SC-19](#sc-19) | The push gate does not run the Rust tests | Process |
 
 ### SC-04
 **Repeated `d` presses are silently dropped.**
@@ -217,15 +216,6 @@ encrypted blob on disk. It is assigned `None` at both capture sites and read by 
 frontmost. Either wire it up and show the source app in the row, or drop the field. Carrying a
 permanently-empty column through an encrypted store is the worst of both.
 
-### SC-19
-**The push gate does not run the Rust tests.**
-`pnpm prepush` is typecheck + lint + vitest. Nothing gates `cargo test`, and 19 of the 31 Rust tests
-are new as of this pass — the pasteboard exclusion predicate, window placement, the pin-exempt cap.
-A regression in any of them reaches the remote unchallenged.
-
-*Fix:* add `cargo test --manifest-path src-tauri/Cargo.toml` to the chain. The reason CLAUDE.md
-excludes Rust is the *build* — heavy and platform-specific. The test run finishes in well under a
-second once deps are warm, which is a different cost class.
 
 ---
 
@@ -239,6 +229,7 @@ second once deps are warm, which is a different cost class.
 | SC-03 | Panel could open off-screen and become unreachable | Geometry extracted to `window_placement.rs` (pure, 10 tests). Saved positions clamp in physical pixels — the space they were captured in — and the cursor path in logical points, each converting with its own monitor's scale factor. Also fixed CoreGraphics points being fed to `PhysicalPosition`, which doubled every offset on Retina. |
 | SC-09 | Pinned items could be evicted by the history cap | The cap now counts *unpinned* entries only; pins are exempt, matching what the Settings copy always promised. `enforce_max_history` retains on the pinned flag instead of truncating blind. 3 tests. Settings copy tightened to "how many unpinned items to keep". |
 | SC-13 | Lint failure was blocking `git push` | Agent scratch directories added to ESLint's ignore list (nested `.gitignore` files are invisible to flat config), and the `^_` unused-argument convention the codebase already wrote by hand is now configured. |
+| SC-19 | The push gate did not run the Rust tests | `pnpm prepush` now chains `test:rust` (`cargo test`). Warm, it costs close to nothing; the heavy Tauri/Rust *build* stays excluded on purpose — tests and builds are different cost classes. |
 | SC-15 | Every row advertised `⌥N`, which almost certainly did nothing | Badge removed. On macOS, holding Option rewrites `KeyboardEvent.key` to the layout's alternate character (⌥1 → `¡`), so `App.tsx`'s `parseInt(event.key)` handler yielded `NaN` and never fired. Quick paste is not a product priority; a row naming a keystroke it cannot deliver is the part that had to go. **The listener in `App.tsx` still exists and is still unverified** — remove it or move it to `event.code` when convenient. |
 
 ---

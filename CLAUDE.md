@@ -14,5 +14,5 @@ swil-clip is a Tauri + Vite + React + TypeScript desktop app (macOS-first; `swil
 - **不要自动 commit / push**。只有用户明确说"commit / push / 提交 / 推送"时才执行。改完代码停在工作树，等用户决定何时落库。
 
 ## Push 前置校验（`.githooks/pre-push`）
-每次 `git push` 前自动跑 `pnpm prepush`（= `typecheck`(tsc --noEmit) + `lint` + `test`），确保 broken tree / 类型错误进不了远端。经 `git config core.hooksPath .githooks` 激活（`prepare` 脚本在 `pnpm install` 时自动设）。**刻意不含** Tauri/Rust `build` 与 `release:mac`（重、平台相关），留给手动打包。紧急绕过：`git push --no-verify`。
+每次 `git push` 前自动跑 `pnpm prepush`（= `typecheck`(tsc --noEmit) + `lint` + `test` + `test:rust`），确保 broken tree / 类型错误进不了远端。经 `git config core.hooksPath .githooks` 激活（`prepare` 脚本在 `pnpm install` 时自动设）。含 `cargo test`（依赖热时接近零耗时），但**刻意不含** Tauri/Rust `build` 与 `release:mac`（重、平台相关），留给手动打包——注意这是两个不同量级的成本，别把测试和构建混为一谈。紧急绕过：`git push --no-verify`。
 > ⚠️ 首次装上后请在机器空闲时本地 `pnpm prepush` 自验一次确认绿（含 `tsc`，内存紧张会 OOM exit 137，届时用 `--no-verify`）。
