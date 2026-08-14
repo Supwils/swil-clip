@@ -129,6 +129,10 @@ pub fn add_item(app_handle: &AppHandle, item: &ClipItem) -> Result<(), String> {
     new_item.pinned = was_pinned;
     items.insert(0, new_item);
     crate::store_logic::enforce_max_history(&mut items, current_max_history(app_handle));
+    crate::store_logic::enforce_byte_budget(
+        &mut items,
+        crate::store_logic::MAX_TOTAL_CONTENT_BYTES,
+    );
 
     save_history(app_handle, &items)
 }
@@ -161,6 +165,10 @@ pub fn clear_unpinned(app_handle: &AppHandle) -> Result<Vec<ClipItem>, String> {
 }
 
 /// Re-insert previously deleted items back into history.
+///
+/// Both caps are re-applied because this path GROWS the list. Restored entries
+/// go to the front, so they survive an eviction and undo still does what it
+/// says — what gets dropped is the oldest tail, exactly as on a fresh copy.
 pub fn restore_items(app_handle: &AppHandle, restored: &[ClipItem]) -> Result<(), String> {
     let mut items = get_history(app_handle)?;
     for r in restored.iter().rev() {
@@ -168,6 +176,10 @@ pub fn restore_items(app_handle: &AppHandle, restored: &[ClipItem]) -> Result<()
         items.insert(0, r.clone());
     }
     crate::store_logic::enforce_max_history(&mut items, current_max_history(app_handle));
+    crate::store_logic::enforce_byte_budget(
+        &mut items,
+        crate::store_logic::MAX_TOTAL_CONTENT_BYTES,
+    );
     save_history(app_handle, &items)
 }
 

@@ -17,34 +17,52 @@ interface UseClipboardActionsReturn {
 export function useClipboardActions(
   onHistoryChanged: () => Promise<void>,
 ): UseClipboardActionsReturn {
-  const busyRef = useRef(false);
+  // Mutations run one at a time, in the order they were requested — but they
+  // QUEUE rather than being rejected.
+  //
+  // Rejecting was the old behaviour and it silently ate keystrokes: every `d`
+  // pressed inside a delete's round-trip returned false and did nothing.
+  // Holding `d` to clear a run of entries — the obvious gesture — deleted
+  // roughly one press in four. Measured before this change: 8 presses 20ms
+  // apart against a 40ms backend produced 2 deletions.
+  //
+  // Serialisation still matters (the backend is a read-modify-write over one
+  // blob, so concurrent mutations would clobber each other); what changed is
+  // that waiting your turn no longer means being dropped.
+  const tailRef = useRef<Promise<unknown>>(Promise.resolve());
+  const pendingRef = useRef(0);
   const [isBusy, setIsBusy] = useState(false);
 
   const runSerialized = useCallback(
-    async <T,>(
+    <T,>(
       operation: () => Promise<T>,
       fallbackValue: T,
       logPrefix: string,
       fallbackMessage: string,
     ): Promise<T> => {
-      if (busyRef.current) {
-        return fallbackValue;
-      }
-
-      busyRef.current = true;
+      pendingRef.current += 1;
       setIsBusy(true);
 
-      try {
-        return await operation();
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : fallbackMessage;
-        console.error(`${logPrefix}:`, message);
-        return fallbackValue;
-      } finally {
-        busyRef.current = false;
-        setIsBusy(false);
-      }
+      const run = tailRef.current.then(async () => {
+        try {
+          return await operation();
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : fallbackMessage;
+          console.error(`${logPrefix}:`, message);
+          return fallbackValue;
+        } finally {
+          pendingRef.current -= 1;
+          // Only the last one out turns the light off — an intermediate
+          // completion must not report the queue as idle.
+          if (pendingRef.current === 0) setIsBusy(false);
+        }
+      });
+
+      // The chain must survive a failing link: `run` already swallows errors,
+      // but keep an explicit guard so a future throw can't wedge the queue.
+      tailRef.current = run.catch(() => undefined);
+      return run;
     },
     [],
   );

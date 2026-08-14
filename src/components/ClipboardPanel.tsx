@@ -240,11 +240,24 @@ export function ClipboardPanel({
     [onPaste],
   );
 
+  // Rows whose delete is queued but hasn't come back yet. They are still
+  // rendered — the backend hasn't confirmed — but they are already doomed, so
+  // the successor search below must never land the cursor on one. Without
+  // this, holding `d` parks the cursor on a row that is itself about to
+  // vanish, and cmdk's selectFirstItem fires when it does.
+  const pendingDeletesRef = useRef<Set<string>>(new Set());
+
   const handleDelete = useCallback(
     async (id: string): Promise<boolean> => {
+      const pending = pendingDeletesRef.current;
+      // A second delete for the same row (double-click, key repeat racing the
+      // list update) is a no-op, not a queued duplicate.
+      if (pending.has(id)) return false;
+
       const list = visibleItemsRef.current;
       const previousSelectedId = selectedIdRef.current;
-      let migrated = false;
+      let migratedTo: string | null = null;
+      pending.add(id);
 
       if (previousSelectedId === id) {
         // Migrate the selection BEFORE the delete lands, and commit it
@@ -257,17 +270,33 @@ export function ClipboardPanel({
         // to the top. Successor rule: the item that will occupy the same
         // position in the *rendered* list — with an active search this is
         // the next visible match, never a hidden item.
+        // Successor = the row that will occupy this position once every
+        // queued delete has landed, so the index has to be measured among
+        // survivors rather than in the list as currently rendered.
         const index = list.findIndex((item) => item.id === id);
-        const remaining = list.filter((item) => item.id !== id);
-        const target = remaining[index] ?? remaining[index - 1];
-        flushSync(() => setSelectedId(target ? target.id : ""));
-        migrated = true;
+        const survivors = list.filter((item) => !pending.has(item.id));
+        const survivorsAbove = list
+          .slice(0, index)
+          .filter((item) => !pending.has(item.id)).length;
+        const target = survivors[survivorsAbove] ?? survivors[survivorsAbove - 1];
+        const nextId = target ? target.id : "";
+        migratedTo = nextId;
+        flushSync(() => setSelectedId(nextId));
       }
 
-      const didDelete = await onDelete(id);
-      if (!didDelete && migrated) {
-        // Rejected (a mutation was already in flight) or failed — the row is
-        // still there, so put the cursor back on it.
+      let didDelete = false;
+      try {
+        didDelete = await onDelete(id);
+      } finally {
+        pending.delete(id);
+      }
+
+      if (!didDelete && migratedTo !== null && selectedIdRef.current === migratedTo) {
+        // The delete failed and the row is still there, so put the cursor back
+        // on it — but only if nothing has moved the cursor since. Deletes are
+        // queued now, so this can resolve long after the user pressed `d`
+        // several more times; yanking the cursor backwards then would be worse
+        // than leaving it where they put it.
         setSelectedId(previousSelectedId);
       }
       return didDelete;
@@ -305,10 +334,15 @@ export function ClipboardPanel({
         return;
       }
 
-      // Mutating keys are gated while a backend mutation is in flight (the
-      // actions hook serializes and rejects re-entrant calls anyway — this
-      // just avoids surprising no-ops/paste-during-delete).
-      if (isBusy && (e.key === "Enter" || e.key === "d" || e.key === "p" || e.key === "u")) {
+      // `d` and `p` are deliberately NOT gated on isBusy: the actions hook
+      // queues mutations instead of rejecting them, so holding `d` to clear a
+      // run of entries lands every press. Gating them here is what used to eat
+      // roughly three keystrokes in four.
+      //
+      // Enter and `u` stay gated. Paste hides the window, and undo re-inserts
+      // rows — either one arriving in the middle of a burst of deletes is
+      // disorienting rather than useful.
+      if (isBusy && (e.key === "Enter" || e.key === "u")) {
         e.preventDefault();
         e.stopPropagation();
         return;

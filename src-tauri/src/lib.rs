@@ -1,5 +1,6 @@
 #![allow(unexpected_cfgs)]
 
+mod persist_cost;
 mod clipboard;
 mod commands;
 mod crypto;

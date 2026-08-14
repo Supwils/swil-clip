@@ -71,7 +71,6 @@ Two pieces of harness exist specifically to stop that from recurring:
 
 | ID | Finding | Area |
 |----|---------|------|
-| [SC-04](#sc-04) | Repeated `d` presses are silently dropped | UX |
 | [SC-05](#sc-05) | Undo after "Clear" silently loses every image | Data |
 | [SC-06](#sc-06) | Auto-paste does nothing without Accessibility permission, and says nothing | UX |
 | [SC-07](#sc-07) | Every clipboard change rewrites and re-encrypts the whole history | Performance |
@@ -80,21 +79,8 @@ Two pieces of harness exist specifically to stop that from recurring:
 | [SC-11](#sc-11) | Tray "Show" ignores the saved window position | UX |
 | [SC-12](#sc-12) | Content Security Policy is disabled | Hardening |
 | [SC-14](#sc-14) | Keyboard navigation is silent to VoiceOver — *deprioritised* | Accessibility |
-| [SC-16](#sc-16) | No size cap on captured clips | Reliability |
 | [SC-17](#sc-17) | Image dimensions are dead UI — the field is never populated | Dead code |
 | [SC-18](#sc-18) | `appName` is carried everywhere and set nowhere | Dead code |
-
-### SC-04
-**Repeated `d` presses are silently dropped.**
-`ClipboardPanel.handleKeyDown` gates mutating keys on `isBusy`, and `useClipboardActions.runSerialized`
-rejects re-entrant calls on top of that. Every press landing inside a delete's round-trip is
-discarded with no feedback. Measured in the browser: 8 presses 20 ms apart against a 40 ms backend
-produced 2 deletions. Clearing a run of entries by holding `d` — the obvious gesture — mostly does
-nothing, and SC-07 widens the window it happens in.
-
-*Fix:* serialise instead of rejecting — queue the delete and advance the cursor optimistically, so
-every press lands. The panel already migrates the selection before dispatch, so the cursor
-arithmetic exists.
 
 ### SC-05
 **Undo after "Clear" silently loses every image.**
@@ -116,15 +102,34 @@ returns nothing, so when permission is missing the keystroke is dropped, the com
 toggle off and point at System Settings → Privacy & Security → Accessibility.
 
 ### SC-07
-**Every clipboard change rewrites and re-encrypts the whole history.**
-`store::save_history` serialises the entire item vector, AES-encrypts it and writes the whole blob —
-inside the IPC handler, so the frontend waits on it. With base64 images in history that is megabytes
-per delete, and it is the main driver of the busy window behind SC-04. The `HistoryCache` removes
-the read cost but not the write cost.
+**Every clipboard change rewrites and re-encrypts the whole history.** — *partially addressed; the
+architecture is unchanged.*
+`store::save_history` serialises the entire item vector, AES-encrypts it and writes the whole blob,
+inside the IPC handler, so the frontend waits on it. Cost is O(entire history) on every single
+mutation.
 
-*Fix:* debounce and move persistence off the command path — mutate the cache, return, let a
-background writer coalesce saves. The debounced-worker pattern already used for window-position
-saves in `lib.rs` applies directly.
+**Measured** (`src-tauri/src/persist_cost.rs`, release build, Apple Silicon):
+
+| History | ms per save | blob |
+|---|---|---|
+| 50 text entries (the default) | **0.7 ms** | 0.05 MB |
+| 50 entries, 5 × 2 MB screenshots | **59 ms** | 13 MB |
+| 500 cap, 20 × 4 MB screenshots — before the byte budget | **479 ms** | 107 MB |
+| the same history, after the byte budget | **167 ms** | 38 MB |
+
+Time is ~90 % encryption; the disk write is ~2 ms and irrelevant. So the shape of the problem is
+total *bytes*, not synchronicity — which is why `enforce_byte_budget` (SC-16) bought more than a
+background writer would have, at none of the durability risk.
+
+> **Measure this in `--release` or not at all.** A debug build runs AES roughly 30× slower and
+> reports 2 s / 16 s for the rows above. Those numbers are an artefact of the profile, not something
+> any user experiences, and they will send you rebuilding the persistence layer for no reason.
+
+*Remaining, if the numbers ever justify it:* mutate the cache, return, and let a debounced background
+writer coalesce saves — the pattern already used for window-position saves in `lib.rs`. It would
+weaken durability from "confirmed before the command returns" to "eventually, plus a flush on exit",
+so it needs a flush-on-quit path and a story for surfacing write failures. At 0.7 ms for the default
+configuration, that trade is not currently worth making.
 
 ### SC-08
 **Pasting an entry re-records it under a new id.**
@@ -183,19 +188,6 @@ a broader promise than that, so the gap should be a known choice rather than a s
 an `aria-label`, and `aria-activedescendant` pointing at the selected row's DOM id, all on the
 focused root, with a stable id on each `ClipItem`.
 
-### SC-16
-**No size cap on captured clips.**
-`take(200)` caps the preview; `content` is stored whole. Copy a 100 MB text dump or a large
-screenshot and the poll thread base64-encodes it, holds it in memory, encrypts it and writes it —
-then repeats the whole thing on every subsequent copy, because SC-07 rewrites the entire blob each
-time. The frontend also holds every item in React state.
-
-Pillar three of the roadmap is "被动历史的可靠性 — 监听不漏". A background daemon that can be stalled
-by one large copy fails exactly that.
-
-*Fix:* skip clips over a threshold rather than truncating them — a silently half-stored clip is
-worse than an absent one. Log the skip so it is explicable rather than mysterious.
-
 ### SC-17
 **Image dimensions are dead UI — the field is never populated.**
 `ClipItem.tsx` renders `1280×830 PNG` under the preview when `imageWidth && imageHeight` are set, and
@@ -229,6 +221,8 @@ permanently-empty column through an encrypted store is the worst of both.
 | SC-03 | Panel could open off-screen and become unreachable | Geometry extracted to `window_placement.rs` (pure, 10 tests). Saved positions clamp in physical pixels — the space they were captured in — and the cursor path in logical points, each converting with its own monitor's scale factor. Also fixed CoreGraphics points being fed to `PhysicalPosition`, which doubled every offset on Retina. |
 | SC-09 | Pinned items could be evicted by the history cap | The cap now counts *unpinned* entries only; pins are exempt, matching what the Settings copy always promised. `enforce_max_history` retains on the pinned flag instead of truncating blind. 3 tests. Settings copy tightened to "how many unpinned items to keep". |
 | SC-13 | Lint failure was blocking `git push` | Agent scratch directories added to ESLint's ignore list (nested `.gitignore` files are invisible to flat config), and the `^_` unused-argument convention the codebase already wrote by hand is now configured. |
+| SC-04 | Repeated `d` presses were silently dropped | `useClipboardActions` now QUEUES mutations instead of rejecting re-entrant ones, and `d`/`p` are off the `isBusy` gate. `handleDelete` also tracks in-flight deletes so the successor search never parks the cursor on a row that is already doomed. Browser-verified at 25/40/120 ms latency: 8/8, 6/6 and 12/12 presses land, cursor holds its index. Was 2 of 8. |
+| SC-16 | No size cap on captured clips | Per-clip cap (`MAX_CLIP_BYTES`, 10 MB) rejects a clip before it is base64-encoded, so a 79 MB uncompressed-TIFF paste is never allocated. Whole-history budget (`MAX_TOTAL_CONTENT_BYTES`, 32 MB) evicts the oldest unpinned entries, which is what bounds SC-07's worst case. Pinned entries are exempt from eviction but their bytes still count. |
 | SC-19 | The push gate did not run the Rust tests | `pnpm prepush` now chains `test:rust` (`cargo test`). Warm, it costs close to nothing; the heavy Tauri/Rust *build* stays excluded on purpose — tests and builds are different cost classes. |
 | SC-15 | Every row advertised `⌥N`, which almost certainly did nothing | Badge removed. On macOS, holding Option rewrites `KeyboardEvent.key` to the layout's alternate character (⌥1 → `¡`), so `App.tsx`'s `parseInt(event.key)` handler yielded `NaN` and never fired. Quick paste is not a product priority; a row naming a keystroke it cannot deliver is the part that had to go. **The listener in `App.tsx` still exists and is still unverified** — remove it or move it to `event.code` when convenient. |
 

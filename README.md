@@ -73,6 +73,11 @@ Duplicate consecutive copies are ignored. History is capped at **50 unpinned ent
 (oldest evicted first) — configurable to 100 / 200 / 500 in Settings. **Pinned items never count
 toward the cap and are never evicted.**
 
+Two size limits keep the store fast, since every change re-encrypts the whole history: a single
+clip over **10 MB** is skipped (this is aimed at uncompressed TIFF pastes, which can be 80 MB —
+ordinary screenshots are well under the limit), and once stored content passes **32 MB** the oldest
+unpinned entries are evicted. Both are logged when they trigger.
+
 ## Project Structure
 
 ```

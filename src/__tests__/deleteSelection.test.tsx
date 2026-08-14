@@ -94,6 +94,25 @@ describe("selection after delete", () => {
     await waitFor(() => expect(selectedPreview(container)).toBe("item 4"));
   });
 
+  it("lands every d press when they arrive faster than the backend", async () => {
+    // The gesture that used to fail: hold `d` to clear a run of entries. Each
+    // press previously landed inside the previous delete's round-trip, where
+    // the isBusy gate and the actions hook's reject-if-busy both discarded it.
+    const { container, root } = await renderAtThirdRow();
+
+    for (let i = 0; i < 4; i++) {
+      fireEvent.keyDown(root, { key: "d" });
+    }
+
+    await waitFor(() => expect(store.map((item) => item.id)).toEqual(["id-1", "id-2"]), {
+      timeout: 2000,
+    });
+    expect(invokeMock.mock.calls.filter(([cmd]) => cmd === "delete_item")).toHaveLength(4);
+    // Cursor ends on the row after the last one deleted; nothing is left below
+    // it, so it clamps to the end of the list.
+    expect(selectedPreview(container)).toBe("item 2");
+  });
+
   it("keeps d targeting the highlighted row after a previous delete", async () => {
     const { container, root } = await renderAtThirdRow();
 

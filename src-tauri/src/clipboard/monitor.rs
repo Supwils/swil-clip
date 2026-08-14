@@ -116,11 +116,19 @@ impl ClipboardMonitor {
                             image_format: None,
                         };
 
-                        if let Err(e) = store::add_item(app_handle, &item) {
-                            log::error!("Failed to store clip item: {}", e);
-                        }
-                        if let Err(e) = app_handle.emit("clipboard-changed", &item) {
-                            log::error!("Failed to emit clipboard event: {}", e);
+                        if crate::store_logic::is_oversized(&item) {
+                            log::warn!(
+                                "Skipping oversized clip ({} bytes, limit {})",
+                                crate::store_logic::item_bytes(&item),
+                                crate::store_logic::MAX_CLIP_BYTES
+                            );
+                        } else {
+                            if let Err(e) = store::add_item(app_handle, &item) {
+                                log::error!("Failed to store clip item: {}", e);
+                            }
+                            if let Err(e) = app_handle.emit("clipboard-changed", &item) {
+                                log::error!("Failed to emit clipboard event: {}", e);
+                            }
                         }
                     }
                 }
@@ -138,6 +146,24 @@ impl ClipboardMonitor {
 
                 if raw_data != nil {
                     let length: usize = msg_send![raw_data, length];
+
+                    // Reject BEFORE encoding. base64 inflates by 4/3, and the
+                    // TIFF fallback below is uncompressed — a 5K screenshot
+                    // with no PNG on the pasteboard is ~59 MB raw, ~79 MB
+                    // encoded. Deciding after the encode would mean allocating
+                    // all of it just to throw it away.
+                    let encoded_len = length / 3 * 4 + 4;
+                    if encoded_len > crate::store_logic::MAX_CLIP_BYTES {
+                        log::warn!(
+                            "Skipping oversized {} clip (~{} bytes encoded, limit {})",
+                            img_format,
+                            encoded_len,
+                            crate::store_logic::MAX_CLIP_BYTES
+                        );
+                        let _: () = msg_send![pool, release];
+                        return;
+                    }
+
                     let bytes: *const u8 = msg_send![raw_data, bytes];
                     let slice = std::slice::from_raw_parts(bytes, length);
                     let b64 = base64::Engine::encode(
