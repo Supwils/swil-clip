@@ -132,4 +132,8 @@ pnpm release:mac
 
 ## License
 
-MIT
+[MIT](./LICENSE) — © 2026 SUPWILSOFT LLC.
+
+The source is free to use, fork and modify. The convenience is the signed,
+notarized universal build on the [releases page](https://github.com/Supwils/swil-clip/releases);
+building it yourself requires an Apple Developer certificate.
