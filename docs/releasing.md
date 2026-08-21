@@ -10,9 +10,43 @@ For a Mac app distributed **outside the App Store**, three things must be true:
 2. **Hardened Runtime** is enabled (Tauri does this by default).
 3. The app is **notarized** by Apple and the ticket is **stapled** into it.
 
-`pnpm tauri build` does (1), (2) and (3) automatically **once the credentials
-are in place**. The one-time setup below is the part only you can do (it needs
-your Apple ID and your paid Apple Developer Program membership).
+**Parts A and B below are the one-time setup**, and are the part only you can do:
+they need your Apple ID and your paid Apple Developer Program membership. Do them
+once; everything after is a single command.
+
+---
+
+## The Swift app (current)
+
+```bash
+cd swift
+bash scripts/release.sh
+```
+
+That gate-runs `swift test`, builds a universal binary, signs it with your
+Developer ID, notarizes and staples **both the app and the disk image**, then
+verifies the result the way Gatekeeper will. Output lands in
+`swift/build/dist/`.
+
+Both artefacts are stapled rather than just the image: the ticket travels with
+whatever it is attached to, so a stapled DMG alone would leave the app
+unverifiable once dragged out of it on a machine that happens to be offline.
+
+**For local iteration, skip notarization.** `bash scripts/bundle.sh --release`
+takes about 13 seconds and produces a Developer ID–signed app — enough for the
+Keychain ACL to recognise it, which a **debug build is not**: an ad-hoc signature
+does not match the ACL on the encryption key, so a debug build stops at a
+password prompt and cannot read the history. Notarization only matters for
+someone else's Mac.
+
+Renaming the product is `PRODUCT_NAME` in `scripts/bundle.sh` and a rebuild. The
+bundle identifier and data directory must not follow it — see `CLAUDE.md` §7.
+
+## The Tauri app (frozen at v0.1.3)
+
+`pnpm tauri build` does (1), (2) and (3) automatically once the credentials are
+in place; `tauri/scripts/release-macos.sh` wraps it. Kept for reference — the
+tree is frozen and is not expected to ship again.
 
 ---
 

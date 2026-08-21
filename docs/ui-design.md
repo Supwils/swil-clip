@@ -1,5 +1,29 @@
 # SwilClip — UI Design System ("Brushed Quartz")
 
+> ### v2 (Swift) — two recorded deviations, 2026-08-20
+>
+> This document stays canonical and every other token ports value-for-value into
+> `swift/Sources/SwilClip/Design/Tokens.swift`. Two things changed, both recorded
+> here because §7 says ratified values need sign-off:
+>
+> 1. **Typeface: SF Pro, not Geist** (§5.7). Geist was a web-era workaround for a
+>    WebView that could not reach SF at variable weights; a native app can. This
+>    document's own reference points — Spotlight and Raycast — are SF Pro, so the
+>    change moves *toward* the stated intent. It also satisfies §5.7's actual
+>    purpose (no network fetches, works offline) with **fewer** fonts, no bundled
+>    asset and no font-registration code.
+>
+> 2. **Action cluster: 88 pt, not 66** (§5.2, §7). The 66 was correct arithmetic
+>    for a **three**-action row: 3 × 20 + 2 × 2 gap + 2 breathing. v2's rows carry
+>    a **fourth** action — "save as prompt" — so the same formula yields 88. The
+>    rule is unchanged and now *computed* (`Token.Space.actionCluster(buttons:)`)
+>    rather than hardcoded, so adding an action can no longer silently
+>    under-reserve and let buttons sit on top of truncated text — the exact
+>    failure §5.2 exists to prevent.
+>
+> Everything else — the six-step luminance scale, 12/10/2 pt spatial system,
+> 11.5 pt row text, 4 pt row padding, 20 pt chip, 9.5 pt timestamp — is unchanged.
+
 **Status:** Canonical. The user has explicitly approved this aesthetic
 direction. Changes to spacing, typography, color, or component structure
 need their sign-off — bug fixes that preserve the look are fine.
@@ -291,3 +315,71 @@ revisit without consent:
 - Pinned items render with an inline pin icon in the meta cluster (always
   visible, not just on hover)
 - The drag region's three-dot affordance only appears on app-shell hover
+
+
+---
+
+## 8. v2 additions (Swift)
+
+Everything in §2 above is the **dark** palette and is unchanged — those values
+were A/B'd and the Swift port is byte-identical (`AccentPaletteTests` pins the
+azure to the same `#4D93F0` the CSS shipped). What v2 adds:
+
+### 8.1 Light appearance
+
+`Token.adaptive(dark:light:)` wraps `NSColor(name:dynamicProvider:)`, so one
+declaration serves SwiftUI, the `NSVisualEffectView` behind it and the menu-bar
+menu alike, with nothing to observe. `Appearance` (system / light / dark) is
+pushed at `NSApp.appearance`; every window inherits it, including the vibrancy
+material, which picks its own light or dark variant.
+
+The light column is **not** an inversion. Flipping lightness around 50 yields
+muddy greys and blue-tinted glass. Each value was chosen for its role on a light
+ground — hover a shade *darker* than rest rather than lighter, borders that
+darken, and a bevel highlight pushed much harder because a white sliver at 18 %
+does not register on a white surface.
+
+### 8.2 Accent is a hue, not a colour
+
+§2.4's rule — accent means "selected" and nothing else — is enforced by giving
+the user exactly one degree of freedom. Saturation stays 84 and lightness stays
+62 (dark) / 48 (light); only the hue moves. Every choice therefore lands
+somewhere the system already works.
+
+`onAccent` is **derived**, not the `hsl(0 0% 100%)` the CSS hard-coded: at a
+fixed 84/62 the hue alone swings the accent from navy to highlighter, and white
+on lime is unreadable. WCAG relative luminance picks black or white.
+
+### 8.3 The scrim goes over the glass
+
+`backdrop-filter: blur(28px)` in §4.1 has no AppKit equivalent —
+`NSVisualEffectView` picks a *material*, and there is no public blur radius. The
+Swift port originally stacked the panel colour *behind* the vibrancy view, where
+a `.behindWindow` effect hides it completely; the panel was only ever as opaque
+as `.hudWindow` happened to be, and a bright window behind it bled through.
+
+The tint now sits **on top of** the glass, and its alpha is a user setting
+(`PanelTint`: sheer 0.55 / standard 0.78 / solid 0.94). That is the only real
+answer to "the background does not cover a bright app", and it is what gives the
+panel a contrast floor independent of what is behind it.
+
+
+### 8.4 Keyboard focus is visible, and says what Return will do
+
+`←`/`→` step through a row's buttons and `⏎` runs the one under the ring. Two
+rules keep that safe rather than merely possible:
+
+- The focused button carries an accent ring and wash — and the **trash carries a
+  red one**. Focus and hover can be on two different buttons at once, so the
+  ring is what says which one Return is aimed at.
+- While a button is armed, the footer reel is replaced by what `⏎` currently
+  means (`⏎ delete`), plus the way out (`⎋ back`). Arrow keys are only safe on a
+  destructive button if the panel tells you before you press Return.
+
+The top bar gets the same treatment when `↑` reaches it — and it is a band with
+stops, not just the two tabs: `[Clipboard | Prompts] … + ⚙`. The `+` appears
+only on Prompts, because a plus next to "Clipboard" would read as "add a clip".
+
+This is what finally gives two panel-level actions a keyboard route: "new
+prompt" was `n`-only with no button at all, and Settings was mouse-only. Both
+are now `↑`, along, `⏎`.
