@@ -12,6 +12,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Signing credentials live at the repository root, shared with the Swift build.
+REPO_ROOT="$(cd "$ROOT/.." && pwd)"
 cd "$ROOT"
 
 log()  { printf '\033[1;34m›\033[0m %s\n' "$*"; }
@@ -19,7 +21,7 @@ ok()   { printf '\033[1;32m✓\033[0m %s\n' "$*"; }
 fail() { printf '\033[1;31m✗\033[0m %s\n' "$*" >&2; exit 1; }
 
 # --- Load credentials ------------------------------------------------------
-ENV_FILE="${RELEASE_ENV_FILE:-$ROOT/.env.release}"
+ENV_FILE="${RELEASE_ENV_FILE:-$REPO_ROOT/.env.release}"
 if [[ -f "$ENV_FILE" ]]; then
   log "Loading release credentials from $ENV_FILE"
   set -a

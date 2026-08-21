@@ -1,5 +1,17 @@
 # Code review register
 
+> ### ⚠️ 适用范围：`tauri/`（已冻结于 v0.1.3）
+>
+> **2026-08-20 起**，本登记册仅描述冻结的 Tauri 实现。见
+> [ADR-0001](./adr/0001-freeze-tauri-adopt-swift.md)。
+>
+> - **SC-05 已修复**（冻结前的最后一次改动）——静默丢数据不能被封存进存档。
+> - **其余 open findings 不再修复。** SC-07 / SC-17 / SC-18 由 Swift 重写的
+>   存储模型从结构上消解（逐行加密、图片旁挂文件、`source_app` 真填）；
+>   SC-06 在 v2 中由 `AXIsProcessTrusted()` 前置校验关闭。
+> - 下面的 **Standing hazard 一节仍需通读**：它记录的是 v1 被咬过的那个
+>   selection bug，v2 用 `SelectionReducer` 纯函数把它钉死，但**教训本身是承重的**。
+
 **Last full pass:** 2026-08-12, against `18a497c` (v0.1.2) plus the working tree on top of it.
 **Scope:** frontend, Rust backend, build and release config.
 

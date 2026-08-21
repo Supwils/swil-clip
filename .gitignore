@@ -16,9 +16,13 @@ dist-electron/
 .DS_Store
 Thumbs.db
 
+# Swift — SPM build products and the assembled .app / .dmg
+swift/.build/
+swift/build/
+
 # Tauri
-src-tauri/target/
-src-tauri/gen/schemas/
+tauri/src-tauri/target/
+tauri/src-tauri/gen/schemas/
 
 # IDE
 .idea/

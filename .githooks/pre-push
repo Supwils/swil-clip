@@ -1,11 +1,27 @@
 #!/bin/sh
 # Local CI gate — runs before every `git push`. Activated by
-# `git config core.hooksPath .githooks` (package.json "prepare" sets it on install).
+# `git config core.hooksPath .githooks` (tauri/package.json "prepare" sets it).
 #
-# Runs `pnpm prepush` = typecheck (tsc --noEmit) + lint + test.
-# Excludes the Tauri/Rust build + release scripts — those stay manual.
-# Bypass in an emergency: git push --no-verify
+# The repository holds two trees:
+#   swift/  — the active app (Swift 6). Gate: `swift test`.
+#   tauri/  — frozen at v0.1.3. Gate: `pnpm prepush` (typecheck + lint + test),
+#             kept running so the archive can never rot into a broken state.
+#
+# Deliberately excludes release builds and notarization — heavy, platform-bound,
+# and manual by design. Bypass in an emergency: git push --no-verify
 set -e
-echo "▶ pre-push: swil-clip — typecheck + lint + test (pnpm prepush)…"
-pnpm prepush
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+if [ -f "$ROOT/swift/Package.swift" ]; then
+  echo "▶ pre-push: swift — build + test…"
+  (cd "$ROOT/swift" && swift test)
+  echo "✔ swift passed"
+fi
+
+if [ -f "$ROOT/tauri/package.json" ]; then
+  echo "▶ pre-push: tauri (frozen) — typecheck + lint + test…"
+  (cd "$ROOT/tauri" && pnpm prepush)
+  echo "✔ tauri passed"
+fi
+
 echo "✔ pre-push passed — safe to push"
