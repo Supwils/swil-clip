@@ -57,6 +57,7 @@ Press **⌘⇧V** anywhere. The panel opens at your cursor.
 | `⏎` | copy — or paste, with Auto Paste on | same |
 | `d` / `p` | delete / pin | delete / pin |
 | `e` | expand | preview |
+| `⇧E` | edit the text in place — `⌘⏎` saves, `esc` discards | edit the body in place |
 | `u` | undo delete | undo delete |
 | `n` | — | new prompt |
 | `⇧S` | **save as prompt** | — |

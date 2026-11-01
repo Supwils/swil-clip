@@ -141,6 +141,23 @@ final class PanelController: NSObject, NSWindowDelegate {
             // While a sheet or the editor is up, it owns the keyboard.
             guard self.editorWindow == nil, self.settingsWindow == nil else { return event }
 
+            // The inline editor works the same way, minus its two exits.
+            if self.model.inlineEdit != nil {
+                // An input method mid-composition owns Esc and Return: they
+                // cancel or commit the candidate, not the edit.
+                if let text = self.panel?.firstResponder as? NSTextView, text.hasMarkedText() {
+                    return event
+                }
+                switch KeyMapping.inlineEditCommand(
+                    keyCode: event.keyCode, modifiers: KeyboardAdapter.modifiers(from: event)
+                ) {
+                case .save: Task { await self.model.commitInlineEdit() }
+                case .cancel: self.model.cancelInlineEdit()
+                case nil: return event
+                }
+                return nil
+            }
+
             guard let command = KeyboardAdapter.command(
                 for: event,
                 isSearching: self.model.selection.isSearching,

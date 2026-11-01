@@ -104,6 +104,12 @@ public struct KeyBinding: Equatable, Sendable, Codable {
 
 extension KeyModifiers: Codable {}
 
+/// The inline editor's two keys. See ``KeyMapping/inlineEditCommand(keyCode:modifiers:)``.
+public enum InlineEditKey: Equatable, Sendable {
+    case save
+    case cancel
+}
+
 /// Turns a keypress into a ``KeyCommand``.
 ///
 /// Pure, and in `SwilClipCore` rather than the app target, so every rule below
@@ -175,7 +181,7 @@ public enum KeyMapping {
         case "s": return hasShift ? .promoteToPrompt : .beginSearch
         case "d": return .deleteItem
         case "p": return .togglePin
-        case "e": return .toggleExpand
+        case "e": return hasShift ? .editInline : .toggleExpand
         case "u": return .undo
         case "n": return .newItem
         case "/": return .beginSearch
@@ -185,6 +191,26 @@ public enum KeyMapping {
             // explicit opener because v1 trained that muscle memory.
             guard let typed = characters, isTypable(typed) else { return nil }
             return .appendToQuery(typed)
+        }
+    }
+
+    /// What a key means while the inline editor has the keyboard.
+    ///
+    /// Almost nothing: the text view owns typing, arrows and Return, so this
+    /// returns `nil` for every key except the two ways out. `⌘⏎` and `⎋` are
+    /// the same pair the sheet editor uses, so the two editors cannot teach
+    /// different habits.
+    public static func inlineEditCommand(
+        keyCode: UInt16,
+        modifiers: KeyModifiers
+    ) -> InlineEditKey? {
+        switch keyCode {
+        case KeyCode.escape where modifiers.isEmpty:
+            return .cancel
+        case KeyCode.return, KeyCode.enter:
+            return modifiers == .command ? .save : nil
+        default:
+            return nil
         }
     }
 

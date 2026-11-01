@@ -194,6 +194,54 @@ public actor LocalStore {
         )
     }
 
+    /// Rewrite a text clip's contents in place — the inline editor's save, and
+    /// its undo.
+    ///
+    /// **The row keeps its id and its position.** `created_at` is the sort key,
+    /// and an edit is not a copy: lifting the row to the top would move it out
+    /// from under the cursor the moment the user finished typing into it.
+    ///
+    /// Taken verbatim, not trimmed. Undo hands back the exact original, and a
+    /// trim here would make "edit, then undo" a second, quiet mutation. Refusing
+    /// blank text is the one rule, because ``recordText`` would never have
+    /// stored such a row in the first place.
+    public func updateText(id: String, to text: String) throws {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw EditFailure.emptyText
+        }
+        let kind = try database.queryOne(
+            "SELECT kind FROM clip WHERE id = ?", [.text(id)]
+        ) { $0.text(0) }
+        guard let kind else { throw EditFailure.notFound(id: id) }
+        guard kind == ClipKind.text.rawValue else { throw EditFailure.notText(id: id) }
+
+        try database.execute(
+            "UPDATE clip SET content = ?, preview = ? WHERE id = ?",
+            [
+                .blob(try cipher.seal(Data(text.utf8))),
+                .blob(try cipher.seal(PreviewText.derive(from: text))),
+                .text(id),
+            ]
+        )
+    }
+
+    /// Why an in-place edit was refused.
+    public enum EditFailure: Error, Equatable, CustomStringConvertible {
+        case emptyText
+        /// The row went away underneath the editor — evicted, or deleted.
+        case notFound(id: String)
+        /// Images have no text to edit.
+        case notText(id: String)
+
+        public var description: String {
+            switch self {
+            case .emptyText: "the text is empty"
+            case .notFound: "this entry no longer exists"
+            case .notText: "only text entries can be edited"
+            }
+        }
+    }
+
     /// Restore previously deleted clips — the undo path.
     ///
     /// ## Images need their sidecar written back, not just their row

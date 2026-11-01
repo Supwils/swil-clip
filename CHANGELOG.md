@@ -29,6 +29,17 @@ user-managed collections, all equal to each other
 - **Deleting a collection asks rather than guesses**, offering "move its entries"
   before "delete them too", and the whole operation is one undo step.
 
+### Inline editing
+
+- **`⇧E` edits a row where it stands.** The expansion turns into a text box —
+  clipboard text, or a collection entry's body — with `⌘⏎` to save and `⎋` to
+  discard; the expanded row also grows an "Edit" link for the mouse. Images
+  and unreadable rows decline.
+- **An edit is not a copy.** A clip keeps its id and its place in the history,
+  and `u` puts the previous text back exactly.
+- **The draft is modal and durable.** While it is open no key or click can move
+  the selection, and closing the panel mid-edit keeps the draft for next time.
+
 ### Internal
 
 - **The app shell is testable.** `SwilClipUI` is now a library target and
@@ -37,6 +48,9 @@ user-managed collections, all equal to each other
   AppKit: the frontmost-app lookup is injected.
 - Undo entries are pushed *after* the write succeeds, so a failed delete or pin
   no longer spends the user's `u` on a no-op (roadmap 2.1.3).
+- The `AppModel` test fixture keeps its scratch preferences inside its temp
+  directory. A bare suite name left one `swilclip-tests-*.plist` in
+  `~/Library/Preferences` per test, written by cfprefsd after teardown.
 - Schema v3 adds the `collection` table and `prompt.collection_id`, seeded inside
   the same transaction as the DDL.
 

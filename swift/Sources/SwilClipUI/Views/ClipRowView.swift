@@ -21,6 +21,7 @@ struct ClipRowView: View {
     /// Which of this row's buttons the keyboard is on, if any. Only ever
     /// non-nil for the selected row.
     let focusedAction: RowAction?
+    let edit: InlineEditHooks
 
     let onSelect: () -> Void
     let onConfirm: () -> Void
@@ -192,6 +193,8 @@ struct ClipRowView: View {
                     .clipShape(
                         RoundedRectangle(cornerRadius: metrics.radiusSM, style: .continuous)
                     )
+            } else if let draft = edit.draft {
+                InlineEditor(text: draft, onSave: edit.save, onCancel: edit.cancel)
             } else if let expandedText {
                 ScrollView {
                     Text(expandedText)
@@ -216,6 +219,9 @@ struct ClipRowView: View {
                 }
                 Spacer(minLength: 0)
                 Text(clip.createdAt.formatted(date: .abbreviated, time: .shortened))
+                if clip.kind == .text, !clip.isUnreadable, edit.draft == nil {
+                    InlineEditButton(action: edit.begin)
+                }
             }
             .font(metrics.microFont)
             .foregroundStyle(Token.Foreground.faint)

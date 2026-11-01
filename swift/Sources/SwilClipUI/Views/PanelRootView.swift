@@ -59,7 +59,11 @@ struct PanelRootView: View {
         // clicked and then stays, drawing a blue box around whatever was touched
         // last, which competes with the accent that means "this row is selected".
         .focusEffectDisabled()
-        .task(id: model.selection.expandedID) { await loadExpansion() }
+        // Keyed on the revision too: an inline save changes the text without
+        // changing the id, and the old text would otherwise stay on screen.
+        .task(id: ExpansionKey(id: model.selection.expandedID, revision: model.contentRevision)) {
+            await loadExpansion()
+        }
     }
 
     /// Clicking a tab is the same command the keyboard emits, repeated — so the
@@ -187,6 +191,7 @@ struct PanelRootView: View {
                     expandedText: expandedText,
                     expandedImage: expandedImage,
                     focusedAction: focusedAction(for: clip.id),
+                    edit: editHooks(for: clip.id),
                     onSelect: { model.handle(.selectID(clip.id)) },
                     onConfirm: {
                         model.handle(.selectID(clip.id))
@@ -229,6 +234,7 @@ struct PanelRootView: View {
                     query: model.selection.isSearching ? model.selection.query : "",
                     isExpanded: model.selection.expandedID == prompt.id,
                     focusedAction: focusedAction(for: prompt.id),
+                    edit: editHooks(for: prompt.id),
                     onSelect: { model.handle(.selectID(prompt.id)) },
                     onConfirm: {
                         model.handle(.selectID(prompt.id))
@@ -249,6 +255,26 @@ struct PanelRootView: View {
     private func focusedAction(for id: String) -> RowAction? {
         guard model.selection.selectedID == id else { return nil }
         return model.selection.focus.focusedAction
+    }
+
+    /// The pencil goes through ``AppModel/handle(_:)`` like every other button,
+    /// so clicking it and pressing `⇧E` are one path. Save and cancel are not
+    /// commands — while a draft is open ``AppModel/handle(_:)`` refuses them all.
+    private func editHooks(for id: String) -> InlineEditHooks {
+        InlineEditHooks(
+            draft: model.inlineEdit?.id == id
+                ? Binding(
+                    get: { model.inlineEdit?.draft ?? "" },
+                    set: { model.inlineEdit?.draft = $0 }
+                )
+                : nil,
+            begin: {
+                model.handle(.selectID(id))
+                model.handle(.editInline)
+            },
+            save: { Task { await model.commitInlineEdit() } },
+            cancel: { model.cancelInlineEdit() }
+        )
     }
 
     /// Whether `index` is the first unpinned row after at least one pinned one.
@@ -273,6 +299,11 @@ struct PanelRootView: View {
             expandedText = await model.expandedText(for: id)
         }
     }
+}
+
+private struct ExpansionKey: Hashable {
+    let id: String?
+    let revision: Int
 }
 
 // MARK: - Drag strip
@@ -471,7 +502,15 @@ private struct FooterBar: View {
     /// which one you are on.
     @ViewBuilder
     private var bandHints: some View {
-        if let action = model.selection.focus.focusedAction {
+        if model.inlineEdit != nil {
+            // Every other key is typing now, so the reel would be describing a
+            // keyboard that is not there. Only the two ways out are true.
+            HStack(spacing: 8 * metrics.scale) {
+                KeyHint(keys: ["⌘", "⏎"], label: strings.hintSave)
+                Spacer(minLength: 0)
+                KeyHint(keys: ["⎋"], label: strings.hintCancel)
+            }
+        } else if let action = model.selection.focus.focusedAction {
             HStack(spacing: 8 * metrics.scale) {
                 KeyHint(keys: ["←", "→"], label: strings.hintMove)
                 KeyHint(keys: ["⏎"], label: strings.rowActionLabel(action))

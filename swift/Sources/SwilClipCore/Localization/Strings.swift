@@ -130,6 +130,7 @@ public struct Strings: Sendable, Equatable {
     }
 
     public var saveAsPromptTooltip: String { pick("Save as prompt (⇧S)", "存为提示词 (⇧S)") }
+    public var editInlineTooltip: String { pick("Edit here (⇧E)", "就地编辑 (⇧E)") }
 
     public func characterCount(_ count: Int) -> String {
         pick(count == 1 ? "1 character" : "\(count) characters", "\(count) 字")
@@ -193,6 +194,14 @@ public struct Strings: Sendable, Equatable {
         pick("No collections — add one in Settings.", "还没有集合，请到设置里新建一个。")
     }
     public var statusPinRestored: String { pick("Pin restored", "已恢复置顶") }
+    public var statusOnlyTextEdits: String {
+        pick("Only text can be edited", "只有文本能编辑")
+    }
+    public var statusEmptyNotSaved: String {
+        pick("Empty text can't be saved — ⎋ to discard", "内容为空，不能保存——按 ⎋ 放弃")
+    }
+    public var statusEditSaved: String { pick("Saved — u to undo", "已保存，按 u 撤销") }
+    public var statusEditRestored: String { pick("Edit undone", "已撤销编辑") }
     public var statusUnpinnedAgain: String { pick("Unpinned again", "已重新取消置顶") }
 
     public func errorReadHistory(_ detail: String) -> String {
@@ -218,6 +227,9 @@ public struct Strings: Sendable, Equatable {
     }
     public func errorDeleteCollection(_ detail: String) -> String {
         pick("Could not delete the collection: \(detail)", "删除集合失败：\(detail)")
+    }
+    public func errorEdit(_ detail: String) -> String {
+        pick("Could not save the edit: \(detail)", "保存修改失败：\(detail)")
     }
     public func errorSavePrompt(_ detail: String) -> String {
         pick("Could not save prompt: \(detail)", "保存提示词失败：\(detail)")
@@ -471,6 +483,11 @@ public struct Strings: Sendable, Equatable {
             )
         case .toggleExpand:
             return pick("Expand or collapse the full contents", "展开或收起完整内容")
+        case .editInline:
+            return pick(
+                "Edit the text right in the row — ⌘⏎ saves, ⎋ discards",
+                "直接在这一行里改文字——⌘⏎ 保存，⎋ 放弃"
+            )
         case .togglePin:
             return pick("Pin it to the top, or unpin it", "置顶，或取消置顶")
         case .deleteItem:
@@ -478,7 +495,10 @@ public struct Strings: Sendable, Equatable {
         case .promoteToPrompt:
             return pick("Save a clipboard entry into the prompt library", "把剪贴板条目存进提示词库")
         case .undo:
-            return pick("Undo the last delete, pin or unpin", "撤销上一次删除 / 置顶 / 取消置顶")
+            return pick(
+                "Undo the last delete, pin, unpin or edit",
+                "撤销上一次删除 / 置顶 / 取消置顶 / 编辑"
+            )
 
         case .focusRowActions:
             return pick(

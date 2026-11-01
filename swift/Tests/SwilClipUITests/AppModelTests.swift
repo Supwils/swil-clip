@@ -22,7 +22,12 @@ final class TempModel {
         let locations = StorageLocations(root: root)
         let store = try LocalStore(locations: locations, key: SymmetricKey(size: .bits256))
         // A scratch domain, so a test never reads or writes the real prefs.
-        let suite = UserDefaults(suiteName: "swilclip-tests-\(UUID().uuidString)")!
+        //
+        // Named by absolute path, inside `root`. A bare suite name lands in
+        // ~/Library/Preferences, and cfprefsd writes it out *after* the test
+        // has finished, so no teardown can reliably delete it — that is how
+        // a couple of hundred `swilclip-tests-*.plist` files piled up there.
+        let suite = UserDefaults(suiteName: root.appendingPathComponent("prefs").path)!
         settings = Settings(defaults: suite)
         model = AppModel(store: store, settings: settings, sourceApp: sourceApp)
     }
@@ -341,5 +346,135 @@ struct CollectionUndoTests {
         #expect(temp.model.collections.map(\.id) == [
             LibraryCollection.Seed.prompts, LibraryCollection.Seed.personal,
         ])
+    }
+}
+
+@Suite("AppModel — inline edit")
+struct InlineEditModelTests {
+    @MainActor
+    private func beginEditing(_ temp: TempModel, row index: Int = 0) async throws {
+        temp.model.handle(.selectID(temp.model.visibleIDs[index]))
+        temp.model.handle(.editInline)
+        try await Task.sleep(for: .milliseconds(80))
+    }
+
+    @MainActor
+    @Test("a clip edit saves in place, and u puts the old text back")
+    func clipEditAndUndo() async throws {
+        let temp = try TempModel()
+        await temp.model.recordForTesting(text: "older")
+        await temp.model.recordForTesting(text: "typo here")
+        await temp.model.refresh()
+        let order = temp.model.visibleIDs
+        let id = order[0]
+
+        try await beginEditing(temp)
+        #expect(temp.model.inlineEdit?.draft == "typo here")
+        #expect(temp.model.selection.expandedID == id)
+
+        temp.model.inlineEdit?.draft = "fixed here"
+        await temp.model.commitInlineEdit()
+        #expect(temp.model.inlineEdit == nil)
+        #expect(await temp.model.expandedText(for: id) == "fixed here")
+        #expect(temp.model.visibleIDs == order, "an edit never re-sorts the history")
+
+        temp.model.handle(.undo)
+        try await Task.sleep(for: .milliseconds(80))
+        #expect(await temp.model.expandedText(for: id) == "typo here")
+    }
+
+    /// The draft is modal. A stray click on another row or a tab must not be
+    /// able to move the selection out from under half-typed text.
+    @MainActor
+    @Test("while a draft is open, commands are ignored")
+    func draftIsModal() async throws {
+        let temp = try TempModel()
+        await temp.model.recordForTesting(text: "one")
+        await temp.model.recordForTesting(text: "two")
+        await temp.model.refresh()
+        try await beginEditing(temp)
+        let selected = temp.model.selection.selectedID
+
+        temp.model.handle(.moveDown)
+        temp.model.handle(.switchTab)
+        temp.model.handle(.deleteItem)
+        try await Task.sleep(for: .milliseconds(80))
+
+        #expect(temp.model.selection.selectedID == selected)
+        #expect(temp.model.selection.tab == .clipboard)
+        #expect(temp.model.clips.count == 2)
+    }
+
+    @MainActor
+    @Test("a blank draft is refused and stays open, so nothing typed is lost")
+    func blankDraftStaysOpen() async throws {
+        let temp = try TempModel()
+        await temp.model.recordForTesting(text: "keep")
+        await temp.model.refresh()
+        try await beginEditing(temp)
+
+        temp.model.inlineEdit?.draft = "   "
+        await temp.model.commitInlineEdit()
+        #expect(temp.model.inlineEdit != nil)
+        #expect(temp.model.statusMessage == temp.settings.strings.statusEmptyNotSaved)
+        #expect(!temp.model.canUndo)
+    }
+
+    @MainActor
+    @Test("cancel and an unchanged save both write nothing")
+    func nothingToUndo() async throws {
+        let temp = try TempModel()
+        await temp.model.recordForTesting(text: "same")
+        await temp.model.refresh()
+
+        try await beginEditing(temp)
+        temp.model.inlineEdit?.draft = "changed, then thought better of it"
+        temp.model.cancelInlineEdit()
+        #expect(temp.model.inlineEdit == nil)
+
+        try await beginEditing(temp)
+        await temp.model.commitInlineEdit()
+        #expect(temp.model.inlineEdit == nil)
+        #expect(!temp.model.canUndo)
+        #expect(await temp.model.expandedText(for: temp.model.visibleIDs[0]) == "same")
+    }
+
+    @MainActor
+    @Test("an entry edit changes the body only, and undo restores it with its timestamp")
+    func entryEditAndUndo() async throws {
+        let temp = try TempModel()
+        try await temp.model.createEntryForTesting(
+            collectionID: LibraryCollection.Seed.prompts, title: "Title", body: "old body"
+        )
+        await temp.model.refresh()
+        temp.model.handle(.switchTab)
+        let before = temp.model.visibleEntries[0]
+
+        try await beginEditing(temp)
+        temp.model.inlineEdit?.draft = "new body"
+        await temp.model.commitInlineEdit()
+        let after = temp.model.entries.first { $0.id == before.id }!
+        #expect(after.body == "new body")
+        #expect(after.title == "Title", "the title belongs to the sheet editor")
+
+        temp.model.handle(.undo)
+        try await Task.sleep(for: .milliseconds(80))
+        let restored = temp.model.entries.first { $0.id == before.id }!
+        #expect(restored.body == "old body")
+        #expect(restored.updatedAt == before.updatedAt)
+    }
+
+    @MainActor
+    @Test("a draft survives the panel closing and reopening")
+    func draftSurvivesReopen() async throws {
+        let temp = try TempModel()
+        await temp.model.recordForTesting(text: "half")
+        await temp.model.refresh()
+        try await beginEditing(temp)
+        temp.model.inlineEdit?.draft = "half-typed"
+
+        temp.model.prepareForPresentation()
+        #expect(temp.model.inlineEdit?.draft == "half-typed")
+        #expect(temp.model.selection.expandedID == temp.model.inlineEdit?.id)
     }
 }

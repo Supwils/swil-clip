@@ -33,6 +33,10 @@ public enum KeyCommand: Equatable, Sendable {
     /// focused pencil button — there is no letter for it, because `e` was
     /// already expand and rebinding a shipped key is worse than one more arrow.
     case editPrompt
+    /// `⇧E`: edit the selected row's text right inside its expansion. The
+    /// shifted twin of `e`, the way `⇧S` is the shifted twin of `s` — so it
+    /// costs no letter from type-to-find.
+    case editInline
     case dismiss
     /// Mouse click. Assistive only — never emitted by hover.
     case selectID(String)
@@ -50,6 +54,9 @@ public enum SelectionEffect: Equatable, Sendable {
     case newItem
     case promote(id: String)
     case edit(id: String)
+    /// Hand the expanded row to the inline editor. The host decides whether the
+    /// row has text to edit; the reducer only knows ids.
+    case editInline(id: String)
     /// Open the preferences sheet. Reachable from the gear in the top bar,
     /// by mouse or by arrowing onto it.
     case openSettings
@@ -323,6 +330,17 @@ public enum SelectionReducer {
                 return Outcome(state: next)
             }
             return Outcome(state: next, effect: .edit(id: id))
+
+        case .editInline:
+            guard let id = state.selectedID, visibleIDs.contains(id) else {
+                return Outcome(state: next)
+            }
+            // The editor lives inside the expansion, so asking to edit a
+            // collapsed row opens it. And it is never a toggle: `⇧E` on an
+            // expanded row must not be the key that hides it.
+            next.expandedID = id
+            next.focus = .list
+            return Outcome(state: next, effect: .editInline(id: id))
 
         case .dismiss:
             if state.focus.focusedAction != nil {

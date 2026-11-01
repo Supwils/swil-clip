@@ -22,7 +22,7 @@ enum KeyboardAdapter {
         )
     }
 
-    private static func modifiers(from event: NSEvent) -> KeyModifiers {
+    static func modifiers(from event: NSEvent) -> KeyModifiers {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         var result: KeyModifiers = []
         if flags.contains(.command) { result.insert(.command) }

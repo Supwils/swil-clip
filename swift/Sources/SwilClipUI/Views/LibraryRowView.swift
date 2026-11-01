@@ -39,6 +39,7 @@ struct LibraryRowView: View {
     let isExpanded: Bool
     /// See ``ClipRowView/focusedAction``.
     let focusedAction: RowAction?
+    let edit: InlineEditHooks
 
     let onSelect: () -> Void
     let onConfirm: () -> Void
@@ -161,22 +162,30 @@ struct LibraryRowView: View {
     private var expansion: some View {
         VStack(alignment: .leading, spacing: 6 * metrics.scale) {
             Hairline().padding(.vertical, 6 * metrics.scale)
-            ScrollView {
-                Text(entry.body)
-                    .font(metrics.expandedFont)
-                    .foregroundStyle(Token.Foreground.primary)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .frame(maxHeight: metrics.expansionMaxHeight)
+            if let draft = edit.draft {
+                // Body only. The title has its own field in the sheet editor
+                // (the pencil), and a second text box here would turn a quick
+                // fix into a form.
+                InlineEditor(text: draft, onSave: edit.save, onCancel: edit.cancel)
+            } else {
+                ScrollView {
+                    Text(entry.body)
+                        .font(metrics.expandedFont)
+                        .foregroundStyle(Token.Foreground.primary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: metrics.expansionMaxHeight)
 
-            HStack {
-                Text(strings.characterCount(entry.body.count))
-                Spacer(minLength: 0)
-                Text(strings.editedLabel(for: entry.updatedAt))
+                HStack(spacing: 8 * metrics.scale) {
+                    Text(strings.characterCount(entry.body.count))
+                    Spacer(minLength: 0)
+                    Text(strings.editedLabel(for: entry.updatedAt))
+                    InlineEditButton(action: edit.begin)
+                }
+                .font(metrics.microFont)
+                .foregroundStyle(Token.Foreground.faint)
             }
-            .font(metrics.microFont)
-            .foregroundStyle(Token.Foreground.faint)
         }
         .padding(.bottom, 2)
     }

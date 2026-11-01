@@ -51,6 +51,30 @@ final class AppModel {
     /// missing signal: the list watches it and re-anchors the scroll.
     private(set) var reorderToken = 0
 
+    /// Bumped when a row's contents change without its id changing.
+    ///
+    /// The expanded row's full text is fetched lazily and keyed by id, so an
+    /// inline save would otherwise leave the old text on screen until the row
+    /// was collapsed and reopened.
+    private(set) var contentRevision = 0
+
+    /// The draft in the inline editor, or `nil` when nothing is being edited.
+    ///
+    /// Not part of ``SelectionReducer/State``: it is a modal draft, the same
+    /// kind of thing the sheet editor keeps in its own window. While it is set
+    /// the panel's key monitor yields to the text view, and ``handle(_:)``
+    /// ignores every command — so no click or key can move the selection, switch
+    /// tabs or delete a row out from under half-typed text.
+    struct InlineEdit: Equatable {
+        let id: String
+        /// Exactly what was stored when editing began — the undo target, and
+        /// how "nothing changed" is told apart from "saved".
+        let original: String
+        var draft: String
+    }
+
+    var inlineEdit: InlineEdit?
+
     /// Per-tab cursor, query and expansion, so returning to a tab does not
     /// silently reset what you were doing there.
     ///
@@ -84,6 +108,12 @@ final class AppModel {
         /// for a clip, `updated_at` for a prompt. Unpinning rewrites it, so the
         /// undo has to put it back — see `LocalStore.restorePinState`.
         case pinChanged(id: String, tab: PanelTab, wasPinned: Bool, orderDate: Date)
+        /// A clip's text before an inline edit. Its position never moved, so
+        /// the text is all there is to put back.
+        case editedClip(id: String, text: String)
+        /// An entry as it was before an inline edit — `updatedAt` included,
+        /// since saving bumps it and that re-sorts the collection.
+        case editedEntry(entry: LibraryEntry)
     }
 
     private var undoStack: [UndoableOperation] = []
@@ -381,6 +411,8 @@ final class AppModel {
 
     /// The single door every keystroke comes through.
     func handle(_ command: KeyCommand) {
+        // The draft owns the panel until it is saved or discarded.
+        guard inlineEdit == nil else { return }
         let outcome = SelectionReducer.reduce(
             selection, command,
             visibleIDs: visibleIDs, actions: selectedRowActions, tabs: tabs
@@ -457,6 +489,7 @@ final class AppModel {
         case .newItem: beginNewItem()
         case .promote(let id): Task { await promote(clipID: id) }
         case .edit(let id): beginEdit(id: id)
+        case .editInline(let id): Task { await beginInlineEdit(id: id) }
         case .openSettings: onOpenSettings?()
         case .switchTab: break // handled above, where both tabs' state is in hand
         case .dismiss: onDismiss?()
@@ -661,11 +694,7 @@ final class AppModel {
                 // shortcut skipped filing the outgoing tab's query and search
                 // mode away, so undoing a pin from the other tab dragged the
                 // current tab's search across with it and lost the target tab's.
-                if selection.tab != tab {
-                    let previous = selection.tab
-                    selection.tab = tab
-                    swapTabState(from: previous, to: tab)
-                }
+                switchForUndo(to: tab)
                 if tab.collectionID != nil {
                     try await store.restoreEntryPinState(
                         id: id, isPinned: wasPinned, orderDate: orderDate
@@ -677,6 +706,19 @@ final class AppModel {
                 }
                 selection.selectedID = id
                 setStatus(wasPinned ? strings.statusPinRestored : strings.statusUnpinnedAgain)
+
+            case .editedClip(let id, let text):
+                switchForUndo(to: .clipboard)
+                try await store.updateText(id: id, to: text)
+                selection.selectedID = id
+                contentRevision &+= 1
+                setStatus(strings.statusEditRestored)
+
+            case .editedEntry(let entry):
+                switchForUndo(to: .collection(entry.collectionID))
+                try await store.restoreEntries([entry])
+                selection.selectedID = entry.id
+                setStatus(strings.statusEditRestored)
             }
             await refresh()
             // Restored rows reappear wherever their age puts them, which may be
@@ -686,6 +728,93 @@ final class AppModel {
             undoStack.insert(operation, at: 0)
             setStatus(strings.errorUndo("\(error)"))
         }
+    }
+
+    /// Bring the tab an undo targets on screen, so the row the user is about to
+    /// see restored is actually visible.
+    ///
+    /// Through the handover, not by assigning `selection.tab`: that shortcut
+    /// skipped filing the outgoing tab's query and search mode away, so undoing
+    /// from the other tab dragged the current tab's search across with it.
+    private func switchForUndo(to tab: PanelTab) {
+        guard selection.tab != tab, tabs.contains(tab) else { return }
+        let previous = selection.tab
+        selection.tab = tab
+        swapTabState(from: previous, to: tab)
+    }
+
+    // MARK: - Inline editing
+
+    /// `⇧E`, or the pencil in an expanded row.
+    ///
+    /// Only text has anything to edit, and an unreadable row has no plaintext
+    /// to start from — opening an empty editor over it would invite the user
+    /// to "save" a blank over ciphertext that might still be recoverable.
+    private func beginInlineEdit(id: String) async {
+        let original: String?
+        if currentCollectionID != nil {
+            guard let entry = entries.first(where: { $0.id == id }) else { return }
+            original = entry.body
+        } else {
+            guard let clip = clips.first(where: { $0.id == id }) else { return }
+            guard clip.kind == .text, !clip.isUnreadable else {
+                setStatus(strings.statusOnlyTextEdits)
+                return
+            }
+            do {
+                original = try await store.text(for: id)
+            } catch {
+                setStatus(strings.errorReadEntry("\(error)"))
+                return
+            }
+        }
+        guard let original else { return }
+        inlineEdit = InlineEdit(id: id, original: original, draft: original)
+    }
+
+    /// `⌘⏎`, or the Save button.
+    ///
+    /// On a refused or failed write the draft **stays open**. Closing it would
+    /// throw away what the user typed to report a problem they can fix — a
+    /// blank body, a locked database — by editing a little more.
+    func commitInlineEdit() async {
+        guard let edit = inlineEdit else { return }
+        guard edit.draft != edit.original else {
+            inlineEdit = nil
+            return
+        }
+        guard !edit.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            setStatus(strings.statusEmptyNotSaved)
+            return
+        }
+        do {
+            if currentCollectionID != nil {
+                guard var entry = entries.first(where: { $0.id == edit.id }) else {
+                    throw LocalStore.EditFailure.notFound(id: edit.id)
+                }
+                let before = entry
+                entry.body = edit.draft
+                try await store.updateEntry(entry)
+                pushUndo(.editedEntry(entry: before))
+            } else {
+                try await store.updateText(id: edit.id, to: edit.draft)
+                pushUndo(.editedClip(id: edit.id, text: edit.original))
+            }
+            inlineEdit = nil
+            await refresh()
+            contentRevision &+= 1
+            // Saving an entry bumps `updatedAt`, which re-sorts the collection
+            // under a selection whose id did not change.
+            reorderToken &+= 1
+            setStatus(strings.statusEditSaved)
+        } catch {
+            setStatus(strings.errorEdit("\(error)"))
+        }
+    }
+
+    /// `⎋`, or the Cancel button. Nothing was written, so nothing to undo.
+    func cancelInlineEdit() {
+        inlineEdit = nil
     }
 
     // MARK: - Prompt editing
@@ -749,7 +878,10 @@ final class AppModel {
     func prepareForPresentation() {
         selection.isSearching = false
         selection.query = ""
-        selection.expandedID = nil
+        // A draft survives a click-away. Clicking another app to look something
+        // up mid-edit is normal, and coming back to find the text gone is not.
+        selection.expandedID = inlineEdit?.id
+        if let edit = inlineEdit { selection.selectedID = edit.id }
         // A summon starts on a row, never on a button left armed from last time.
         selection.focus = .list
         statusMessage = nil
