@@ -52,9 +52,14 @@ public enum TopBarItem: String, Sendable, Equatable, CaseIterable, Identifiable 
     /// The Clipboard / Prompts pair. Which one is lit *is* `State.tab`;
     /// arrowing between them switches live, so they share one stop.
     case tabs
-    /// `+`. Only present on the Prompts tab — a plus next to "Clipboard" would
-    /// read as "add a clip", which is not a thing you can do.
-    case newPrompt
+    /// `＋`. Present on every collection tab and on no clipboard tab — a plus
+    /// next to "Clipboard" would read as "add a clip", which is not a thing you
+    /// can do.
+    ///
+    /// That is a judgement about what the *glyph* reads as, not a statement
+    /// about capability: pressing `n` on the clipboard still creates an entry,
+    /// in the first collection. The asymmetry is deliberate.
+    case newItem
     case settings
 
     public var id: String { rawValue }
@@ -67,7 +72,10 @@ extension PanelTab {
     /// depends only on state the reducer already holds. The bar renders from
     /// the same array — same rule as ``RowAction``, same reason.
     public var topBarItems: [TopBarItem] {
-        self == .prompts ? [.tabs, .newPrompt, .settings] : [.tabs, .settings]
+        switch self {
+        case .clipboard: [.tabs, .settings]
+        case .collection: [.tabs, .newItem, .settings]
+        }
     }
 }
 
@@ -99,5 +107,4 @@ public enum PanelFocus: Equatable, Sendable {
     }
 
     public var isOnTopBar: Bool { topBarItem != nil }
-    public var isOnTabs: Bool { self == .tabs }
 }

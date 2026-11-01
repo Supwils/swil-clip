@@ -1,5 +1,46 @@
 # Changelog
 
+## Unreleased
+
+### Collections
+
+**Prompts was never a second tab. It was the first collection.** The panel's
+hard-coded Clipboard/Prompts pair is now Clipboard plus an ordered list of
+user-managed collections, all equal to each other
+([design](docs/design-collections.md)).
+
+- **User-defined tabs.** Up to five collections beside Clipboard, each with a
+  name, a glyph and a position. Create, rename, re-icon, reorder and delete them
+  in Settings → Collections. The migration seeds `Prompts` and `Personal`, and
+  then forgets it did: there is no built-in flag, so those two obey exactly the
+  same rules as one you make tomorrow.
+- **`⇧⇥` walks back through the tabs**, and `⇥` now wraps. `←`/`→` on the top bar
+  still spend themselves on the tabs before reaching `＋` and `⚙`, and they
+  deliberately do *not* wrap — they have somewhere else to go.
+- **`⇧S` saves into the first collection**, whichever that is. No preference key
+  behind it: the order is drawn across the top bar, so to change the target you
+  move that collection to the front. The footer names the destination.
+- **The editor gained a collection picker**, which doubles as the only "move
+  between collections" affordance — and `⇥` now cycles Title → Body → Collection,
+  so the editor is no longer the one place in the app that needed the mouse.
+- **The top bar degrades instead of clipping.** Icon + name + count while it
+  fits; then inactive counts go, then inactive names. The active tab never
+  degrades.
+- **Deleting a collection asks rather than guesses**, offering "move its entries"
+  before "delete them too", and the whole operation is one undo step.
+
+### Internal
+
+- **The app shell is testable.** `SwilClipUI` is now a library target and
+  `SwilClip` is `main.swift` alone, so `@testable import` reaches the 4,600 lines
+  that previously had no tests (roadmap 2.1.1). `AppModel` no longer imports
+  AppKit: the frontmost-app lookup is injected.
+- Undo entries are pushed *after* the write succeeds, so a failed delete or pin
+  no longer spends the user's `u` on a no-op (roadmap 2.1.3).
+- Schema v3 adds the `collection` table and `prompt.collection_id`, seeded inside
+  the same transaction as the DDL.
+
+
 ## v2.0.0 — 2026-08-21
 
 A complete rewrite in Swift. The Tauri implementation is frozen at v0.1.3 and
@@ -94,5 +135,5 @@ because this binary's signature differs from v1's.
 
 The Tauri implementation. See the
 [GitHub releases](https://github.com/Supwils/swil-clip/releases) for v0.1.0
-through v0.1.3, and [`docs/code-review.md`](docs/code-review.md) for the review
+through v0.1.3, and [`docs/v1/code-review.md`](docs/v1/code-review.md) for the review
 register that drove its last few fixes.

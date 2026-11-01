@@ -245,11 +245,18 @@ struct SelectionReducerTests {
 
     @Test("tab switching toggles and reports an effect")
     func tabSwitching() {
-        let outcome = SelectionReducer.reduce(state(selected: "a"), .switchTab, visibleIDs: ids)
-        #expect(outcome.state.tab == .prompts)
+        // Two tabs, named rather than enumerated: `PanelTab` no longer lists
+        // its cases, because the set of tabs is runtime data.
+        let prompts = PanelTab.collection(LibraryCollection.Seed.prompts)
+        let tabs: [PanelTab] = [.clipboard, prompts]
+
+        let outcome = SelectionReducer.reduce(
+            state(selected: "a"), .switchTab, visibleIDs: ids, tabs: tabs
+        )
+        #expect(outcome.state.tab == prompts)
         #expect(outcome.effect == .switchTab)
         #expect(
-            SelectionReducer.reduce(outcome.state, .switchTab, visibleIDs: ids)
+            SelectionReducer.reduce(outcome.state, .switchTab, visibleIDs: ids, tabs: tabs)
                 .state.tab == .clipboard
         )
     }

@@ -172,22 +172,6 @@ struct LocalStoreClipTests {
         #expect(try await temp.store.clipCount() == 0)
     }
 
-    @Test("clearUnpinned returns what it removed and spares pinned rows")
-    func clearUnpinnedIsUndoable() async throws {
-        let temp = try TempStore()
-        let pinned = try await temp.store.recordText("pinned", limit: 50)
-        try await temp.store.setPinned(true, id: pinned!.id)
-        try await temp.store.recordText("doomed a", limit: 50)
-        try await temp.store.recordText("doomed b", limit: 50)
-
-        let removed = try await temp.store.clearUnpinned()
-        #expect(removed.count == 2)
-        #expect(try await temp.store.clipCount() == 1)
-
-        // Undo restores exactly what was reported — including, unlike v1, images.
-        try await temp.store.restore(removed, contents: [:])
-        #expect(try await temp.store.clipCount() == 3)
-    }
 
     @Test("row content is encrypted on disk")
     func rowsAreSealed() async throws {
@@ -215,7 +199,8 @@ struct LocalStorePromptTests {
     @Test("creates a prompt with a title derived from the body")
     func createsWithDerivedTitle() async throws {
         let temp = try TempStore()
-        let prompt = try await temp.store.createPrompt(
+        let prompt = try await temp.store.createEntry(
+            collectionID: LibraryCollection.Seed.prompts,
             body: "请优化语言描述，降低AI感，非流水账，使用偏正式的措辞"
         )
         // 24 characters, then an ellipsis — the panel is 340 pt wide.
@@ -226,15 +211,15 @@ struct LocalStorePromptTests {
     @Test("an explicit title wins over the derived one")
     func explicitTitleWins() async throws {
         let temp = try TempStore()
-        let prompt = try await temp.store.createPrompt(title: "简历优化", body: "请根据岗位要求…")
+        let prompt = try await temp.store.createEntry(collectionID: LibraryCollection.Seed.prompts, title: "简历优化", body: "请根据岗位要求…")
         #expect(prompt?.title == "简历优化")
     }
 
     @Test("refuses an empty body")
     func refusesEmptyBody() async throws {
         let temp = try TempStore()
-        #expect(try await temp.store.createPrompt(body: "   \n ") == nil)
-        #expect(try await temp.store.promptCount() == 0)
+        #expect(try await temp.store.createEntry(collectionID: LibraryCollection.Seed.prompts, body: "   \n ") == nil)
+        #expect(try await temp.store.entryCount() == 0)
     }
 
     @Test("prompts are exempt from history eviction")
@@ -242,25 +227,25 @@ struct LocalStorePromptTests {
         // The entire reason the library exists: things worth keeping must not be
         // washed away by the 50-entry window.
         let temp = try TempStore()
-        try await temp.store.createPrompt(body: "long-lived instruction")
+        try await temp.store.createEntry(collectionID: LibraryCollection.Seed.prompts, body: "long-lived instruction")
         for index in 0..<200 {
             try await temp.store.recordText("churn \(index)", limit: 5)
         }
-        #expect(try await temp.store.promptCount() == 1)
+        #expect(try await temp.store.entryCount() == 1)
         #expect(try await temp.store.clipCount() == 5)
     }
 
     @Test("editing updates the body and bumps updatedAt")
     func editingBumpsTimestamp() async throws {
         let temp = try TempStore()
-        var prompt = try await temp.store.createPrompt(body: "original")!
+        var prompt = try await temp.store.createEntry(collectionID: LibraryCollection.Seed.prompts, body: "original")!
         let originalUpdate = prompt.updatedAt
 
         prompt.body = "revised"
         let later = originalUpdate.addingTimeInterval(60)
-        try await temp.store.updatePrompt(prompt, now: later)
+        try await temp.store.updateEntry(prompt, now: later)
 
-        let reloaded = try await temp.store.prompt(id: prompt.id)
+        let reloaded = try await temp.store.entry(id: prompt.id)
         #expect(reloaded?.body == "revised")
         #expect(reloaded!.updatedAt > originalUpdate)
     }
@@ -274,7 +259,7 @@ struct LocalStorePromptTests {
             "请整理下我们这轮session的工作，并做好工作交接", limit: 50
         )!
 
-        let prompt = try await temp.store.promoteToPrompt(clipID: clip.id)
+        let prompt = try await temp.store.promote(clipID: clip.id, into: LibraryCollection.Seed.prompts)
 
         #expect(prompt?.body == "请整理下我们这轮session的工作，并做好工作交接")
         #expect(prompt?.title.hasPrefix("请整理下我们这轮session") == true)
@@ -287,8 +272,8 @@ struct LocalStorePromptTests {
         let image = try await temp.store.recordImage(
             Data(repeating: 9, count: 32), width: 1, height: 1, format: "png", limit: 50
         )!
-        #expect(try await temp.store.promoteToPrompt(clipID: image.id) == nil)
-        #expect(try await temp.store.promptCount() == 0)
+        #expect(try await temp.store.promote(clipID: image.id, into: LibraryCollection.Seed.prompts) == nil)
+        #expect(try await temp.store.entryCount() == 0)
     }
 
     @Test("prompt bodies are encrypted on disk")
@@ -296,7 +281,7 @@ struct LocalStorePromptTests {
         // A prompt body is often the most sensitive text in the app, and it
         // lives far longer than any clipboard entry.
         let temp = try TempStore()
-        try await temp.store.createPrompt(body: "PROPRIETARY-PROMPT-BODY")
+        try await temp.store.createEntry(collectionID: LibraryCollection.Seed.prompts, body: "PROPRIETARY-PROMPT-BODY")
 
         let raw = try Data(contentsOf: temp.locations.databaseURL)
         #expect(raw.range(of: Data("PROPRIETARY-PROMPT-BODY".utf8)) == nil)
@@ -306,11 +291,11 @@ struct LocalStorePromptTests {
     func pinnedPromptsSortFirst() async throws {
         let temp = try TempStore()
         let base = Date()
-        let first = try await temp.store.createPrompt(body: "alpha", now: base)!
-        try await temp.store.createPrompt(body: "beta", now: base.addingTimeInterval(10))
-        try await temp.store.setPromptPinned(true, id: first.id)
+        let first = try await temp.store.createEntry(collectionID: LibraryCollection.Seed.prompts, body: "alpha", now: base)!
+        try await temp.store.createEntry(collectionID: LibraryCollection.Seed.prompts, body: "beta", now: base.addingTimeInterval(10))
+        try await temp.store.setEntryPinned(true, id: first.id)
 
-        let prompts = try await temp.store.allPrompts()
+        let prompts = try await temp.store.allEntries()
         #expect(prompts.map(\.body) == ["alpha", "beta"])
     }
 }
@@ -417,15 +402,15 @@ struct LocalStorePinOrderingTests {
     func unpinningPromptPromotes() async throws {
         let temp = try TempStore()
         let base = Date()
-        let old = try await temp.store.createPrompt(body: "old prompt", now: base)!
-        try await temp.store.createPrompt(body: "newer prompt", now: base.addingTimeInterval(10))
-        try await temp.store.setPromptPinned(true, id: old.id)
+        let old = try await temp.store.createEntry(collectionID: LibraryCollection.Seed.prompts, body: "old prompt", now: base)!
+        try await temp.store.createEntry(collectionID: LibraryCollection.Seed.prompts, body: "newer prompt", now: base.addingTimeInterval(10))
+        try await temp.store.setEntryPinned(true, id: old.id)
 
-        try await temp.store.setPromptPinned(
+        try await temp.store.setEntryPinned(
             false, id: old.id, now: base.addingTimeInterval(100)
         )
 
-        #expect(try await temp.store.allPrompts().first?.id == old.id)
+        #expect(try await temp.store.allEntries().first?.id == old.id)
     }
 }
 
@@ -570,18 +555,18 @@ struct LocalStorePinUndoTests {
     func undoPromptPin() async throws {
         let temp = try TempStore()
         let base = Date()
-        let prompt = try await temp.store.createPrompt(body: "a prompt", now: base)!
-        try await temp.store.createPrompt(body: "another", now: base.addingTimeInterval(10))
-        try await temp.store.setPromptPinned(true, id: prompt.id)
+        let prompt = try await temp.store.createEntry(collectionID: LibraryCollection.Seed.prompts, body: "a prompt", now: base)!
+        try await temp.store.createEntry(collectionID: LibraryCollection.Seed.prompts, body: "another", now: base.addingTimeInterval(10))
+        try await temp.store.setEntryPinned(true, id: prompt.id)
 
-        try await temp.store.setPromptPinned(
+        try await temp.store.setEntryPinned(
             false, id: prompt.id, now: base.addingTimeInterval(500)
         )
-        try await temp.store.restorePromptPinState(
+        try await temp.store.restoreEntryPinState(
             id: prompt.id, isPinned: true, orderDate: base
         )
 
-        let restored = try await temp.store.prompt(id: prompt.id)!
+        let restored = try await temp.store.entry(id: prompt.id)!
         #expect(restored.isPinned)
         #expect(abs(restored.updatedAt.timeIntervalSince(base)) < 0.001)
     }

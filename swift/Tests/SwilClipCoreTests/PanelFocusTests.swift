@@ -2,6 +2,15 @@ import Testing
 
 @testable import SwilClipCore
 
+/// The two-tab world this suite was written against.
+///
+/// `PanelTab` no longer enumerates its cases — the set of tabs is runtime data
+/// now — so the pair the original assertions assumed is named here instead of
+/// being spelled `promptsTab`. Nothing else about these tests changed: each one
+/// still maps to a state the v1 delete-wrong-row bug passed through.
+private let promptsTab = PanelTab.collection(LibraryCollection.Seed.prompts)
+private let twoTabs: [PanelTab] = [.clipboard, promptsTab]
+
 /// Arrow-key navigation across the panel's two bands.
 ///
 /// `SelectionReducerTests` covers the vertical axis and exists because of a
@@ -38,7 +47,7 @@ struct PanelFocusTests {
         actions: [RowAction]? = nil
     ) -> SelectionReducer.Outcome {
         SelectionReducer.reduce(
-            state, command, visibleIDs: ids, actions: actions ?? text
+            state, command, visibleIDs: ids, actions: actions ?? text, tabs: twoTabs
         )
     }
 
@@ -223,7 +232,7 @@ struct PanelFocusTests {
         let onClipboard = state(selected: "a", focus: .tabs, tab: .clipboard)
 
         let right = reduce(onClipboard, .moveRight)
-        #expect(right.state.tab == .prompts)
+        #expect(right.state.tab == promptsTab)
         #expect(right.effect == .switchTab)
         #expect(right.state.focus == .tabs, "switching tabs must not drop out of the band")
 
@@ -237,7 +246,7 @@ struct PanelFocusTests {
     func tabKeyStillWorks() {
         let armed = state(selected: "b", focus: .row(action: .delete))
         let outcome = reduce(armed, .switchTab)
-        #expect(outcome.state.tab == .prompts)
+        #expect(outcome.state.tab == promptsTab)
         #expect(outcome.effect == .switchTab)
         // The other tab's rows carry a pencil where these carry "save as prompt".
         #expect(outcome.state.focus == .list)
@@ -281,7 +290,7 @@ struct PanelFocusTests {
     func rowActionsMatchTheRowKinds() {
         let textClip = ClipItem(kind: .text, preview: "hi", text: "hi")
         let imageClip = ClipItem(kind: .image, preview: "png", blobPath: "x")
-        let prompt = PromptItem(title: "t", body: "b")
+        let prompt = LibraryEntry(title: "t", body: "b")
 
         #expect(textClip.rowActions == [.pin, .promote, .expand, .delete])
         #expect(imageClip.rowActions == [.pin, .expand, .delete])
@@ -356,15 +365,15 @@ struct TabHandoverTests {
     @Test("the focus band is panel-wide and rides across the switch")
     func bandSurvivesTheSwap() {
         let onTabs = SelectionReducer.State(selectedID: "a", tab: .clipboard, focus: .tabs)
-        let stored = SelectionReducer.State(selectedID: "p1", tab: .prompts, focus: .list)
+        let stored = SelectionReducer.State(selectedID: "p1", tab: promptsTab, focus: .list)
 
         let (_, adopted) = SelectionReducer.swapTab(
-            current: onTabs, incoming: stored, from: .clipboard
+            current: onTabs, incoming: stored, from: .clipboard, to: promptsTab
         )
         // Still on the tab bar — otherwise the very next ⏎ copies a row and
         // closes the panel instead of entering the tab you just arrowed to.
         #expect(adopted.focus == .tabs)
-        #expect(adopted.tab == .prompts)
+        #expect(adopted.tab == promptsTab)
         #expect(adopted.selectedID == "p1", "the cursor is still per tab")
     }
 
@@ -373,10 +382,10 @@ struct TabHandoverTests {
         let clipboard = SelectionReducer.State(
             selectedID: "a", query: "abc", isSearching: true, tab: .clipboard, expandedID: "a"
         )
-        let prompts = SelectionReducer.State(selectedID: "p2", tab: .prompts)
+        let prompts = SelectionReducer.State(selectedID: "p2", tab: promptsTab)
 
         let (outgoing, adopted) = SelectionReducer.swapTab(
-            current: clipboard, incoming: prompts, from: .clipboard
+            current: clipboard, incoming: prompts, from: .clipboard, to: promptsTab
         )
         // Filed away intact, so coming back resumes the search.
         #expect(outgoing.tab == .clipboard)
@@ -392,11 +401,15 @@ struct TabHandoverTests {
     @Test("switching back and forth is a round trip")
     func roundTrips() {
         var clipboard = SelectionReducer.State(selectedID: "a", query: "x", isSearching: true, tab: .clipboard)
-        var prompts = SelectionReducer.State(selectedID: "p1", tab: .prompts)
+        var prompts = SelectionReducer.State(selectedID: "p1", tab: promptsTab)
 
-        let out = SelectionReducer.swapTab(current: clipboard, incoming: prompts, from: .clipboard)
+        let out = SelectionReducer.swapTab(
+            current: clipboard, incoming: prompts, from: .clipboard, to: promptsTab
+        )
         clipboard = out.outgoing
-        let back = SelectionReducer.swapTab(current: out.adopted, incoming: clipboard, from: .prompts)
+        let back = SelectionReducer.swapTab(
+            current: out.adopted, incoming: clipboard, from: promptsTab, to: .clipboard
+        )
         prompts = back.outgoing
 
         #expect(back.adopted.selectedID == "a")
@@ -418,7 +431,7 @@ struct PromptRowFocusTests {
     @Test("⏎ on the pencil opens the editor instead of copying")
     func returnOnThePencilEdits() {
         let armed = SelectionReducer.State(
-            selectedID: "p1", tab: .prompts, focus: .row(action: .edit)
+            selectedID: "p1", tab: promptsTab, focus: .row(action: .edit)
         )
         let outcome = SelectionReducer.reduce(
             armed, .confirm, visibleIDs: ids, actions: actions
@@ -429,7 +442,7 @@ struct PromptRowFocusTests {
 
     @Test("two rights from a prompt row land on the pencil")
     func twoRightsReachThePencil() {
-        var s = SelectionReducer.State(selectedID: "p1", tab: .prompts)
+        var s = SelectionReducer.State(selectedID: "p1", tab: promptsTab)
         s = SelectionReducer.reduce(s, .moveRight, visibleIDs: ids, actions: actions).state
         #expect(s.focus == .row(action: .pin))
         s = SelectionReducer.reduce(s, .moveRight, visibleIDs: ids, actions: actions).state
@@ -487,7 +500,10 @@ struct TopBarFocusTests {
     private func reduce(
         _ state: SelectionReducer.State, _ command: KeyCommand
     ) -> SelectionReducer.Outcome {
-        SelectionReducer.reduce(state, command, visibleIDs: ids, actions: [.pin, .expand, .delete])
+        SelectionReducer.reduce(
+            state, command, visibleIDs: ids,
+            actions: [.pin, .expand, .delete], tabs: twoTabs
+        )
     }
 
     private func onBar(_ item: TopBarItem, tab: PanelTab) -> SelectionReducer.State {
@@ -496,12 +512,14 @@ struct TopBarFocusTests {
 
     @Test("+ exists on Prompts and nowhere else")
     func plusIsPromptsOnly() {
-        #expect(PanelTab.prompts.topBarItems == [.tabs, .newPrompt, .settings])
+        #expect(promptsTab.topBarItems == [.tabs, .newItem, .settings])
         // A plus next to "Clipboard" would read as "add a clip".
         #expect(PanelTab.clipboard.topBarItems == [.tabs, .settings])
         // The tabs are the one stop that is always present, so arriving in the
         // bar always has somewhere to land.
-        for tab in PanelTab.allCases { #expect(tab.topBarItems.first == .tabs) }
+        // `PanelTab` is no longer `CaseIterable`; the live tab list is what
+        // the panel draws, so the invariant is asserted over that instead.
+        for tab in twoTabs { #expect(tab.topBarItems.first == .tabs) }
     }
 
     /// The arrows spend themselves on switching tabs first, so flipping between
@@ -510,44 +528,44 @@ struct TopBarFocusTests {
     @Test("→ switches tabs before it steps off them")
     func tabsAbsorbTheFirstStep() {
         let first = reduce(onBar(.tabs, tab: .clipboard), .moveRight)
-        #expect(first.state.tab == .prompts)
+        #expect(first.state.tab == promptsTab)
         #expect(first.effect == .switchTab)
         #expect(first.state.focus == .tabs, "still on the tabs, just the other one")
 
-        let second = reduce(onBar(.tabs, tab: .prompts), .moveRight)
-        #expect(second.state.tab == .prompts, "no tab left to switch to")
-        #expect(second.state.focus == .topBar(.newPrompt))
+        let second = reduce(onBar(.tabs, tab: promptsTab), .moveRight)
+        #expect(second.state.tab == promptsTab, "no tab left to switch to")
+        #expect(second.state.focus == .topBar(.newItem))
         #expect(second.effect == nil)
     }
 
     @Test("the bar walks to the gear and stops at the end")
     func walksToTheGearAndStops() {
-        var s = onBar(.newPrompt, tab: .prompts)
+        var s = onBar(.newItem, tab: promptsTab)
         s = reduce(s, .moveRight).state
         #expect(s.focus == .topBar(.settings))
         s = reduce(s, .moveRight).state
         #expect(s.focus == .topBar(.settings), "nothing past the gear")
         s = reduce(s, .moveLeft).state
-        #expect(s.focus == .topBar(.newPrompt))
+        #expect(s.focus == .topBar(.newItem))
     }
 
     @Test("on Clipboard the gear is one step past the tabs")
     func clipboardSkipsThePlus() {
-        var s = onBar(.tabs, tab: .prompts)
+        var s = onBar(.tabs, tab: promptsTab)
         // ← switches back to Clipboard...
         s = reduce(s, .moveLeft).state
         #expect(s.tab == .clipboard)
         // ...and from there → returns to Prompts rather than reaching the gear,
         // because the tabs always absorb the first step.
-        #expect(reduce(s, .moveRight).state.tab == .prompts)
+        #expect(reduce(s, .moveRight).state.tab == promptsTab)
     }
 
     @Test("⏎ activates whichever stop it is on")
     func enterActivatesTheStop() {
-        #expect(reduce(onBar(.newPrompt, tab: .prompts), .confirm).effect == .newPrompt)
-        #expect(reduce(onBar(.settings, tab: .prompts), .confirm).effect == .openSettings)
+        #expect(reduce(onBar(.newItem, tab: promptsTab), .confirm).effect == .newItem)
+        #expect(reduce(onBar(.settings, tab: promptsTab), .confirm).effect == .openSettings)
         // The tabs are the exception: `⏎` there means "go into this list".
-        let tabs = reduce(onBar(.tabs, tab: .prompts), .confirm)
+        let tabs = reduce(onBar(.tabs, tab: promptsTab), .confirm)
         #expect(tabs.effect == nil)
         #expect(tabs.state.focus == .list)
     }
@@ -555,7 +573,7 @@ struct TopBarFocusTests {
     @Test("↓ leaves the bar from any stop")
     func downLeavesFromAnywhere() {
         for item in TopBarItem.allCases {
-            let outcome = reduce(onBar(item, tab: .prompts), .moveDown)
+            let outcome = reduce(onBar(item, tab: promptsTab), .moveDown)
             #expect(outcome.state.focus == .list, "\(item)")
             #expect(outcome.state.selectedID == "a", "\(item) — leaving the bar is not a reset")
         }
@@ -564,7 +582,7 @@ struct TopBarFocusTests {
     @Test("↑ from the bar has nowhere to go")
     func nothingAboveTheBar() {
         for item in TopBarItem.allCases {
-            #expect(reduce(onBar(item, tab: .prompts), .moveUp).state.focus == .topBar(item))
+            #expect(reduce(onBar(item, tab: promptsTab), .moveUp).state.focus == .topBar(item))
         }
     }
 
@@ -572,7 +590,7 @@ struct TopBarFocusTests {
     /// the bar's version of "a button the row does not carry".
     @Test("a stop the new tab lacks falls back to the tabs")
     func stopsClampOnTabChange() {
-        let onPlus = onBar(.newPrompt, tab: .prompts)
+        let onPlus = onBar(.newItem, tab: promptsTab)
         #expect(reduce(onPlus, .switchTab).state.focus == .tabs)
 
         var stale = onPlus
@@ -582,6 +600,6 @@ struct TopBarFocusTests {
 
     @Test("the gear survives a tab change; it exists on both")
     func theGearIsAlwaysThere() {
-        #expect(reduce(onBar(.settings, tab: .prompts), .switchTab).state.focus == .topBar(.settings))
+        #expect(reduce(onBar(.settings, tab: promptsTab), .switchTab).state.focus == .topBar(.settings))
     }
 }

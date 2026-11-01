@@ -6,9 +6,36 @@ import Foundation
 /// file and cannot drift from it. Each migration is append-only: a shipped one
 /// is never edited, because a database in the wild has already run it.
 public enum Schema {
-    public static let current: Int32 = 2
+    public static let current: Int32 = 3
 
-    public static func migrate(_ database: Database) throws {
+    /// Names for the two collections the v3 migration seeds.
+    ///
+    /// Passed in rather than read from a preference, because `SwilClipCore`
+    /// does not import AppKit and has no idea what language the interface is
+    /// in. `AppDelegate` builds `Settings` before `LocalStore`, so
+    /// `settings.strings.promptsTab` is already in hand at the call site.
+    ///
+    /// The seeded names are ordinary user data from the moment they are
+    /// written: they do not follow a later language switch, because a name the
+    /// user can rename is not interface copy. See ``LibraryCollection``.
+    public struct SeedNames: Sendable, Equatable {
+        public let prompts: String
+        public let personal: String
+
+        public init(prompts: String, personal: String) {
+            self.prompts = prompts
+            self.personal = personal
+        }
+
+        /// For the recovery tool and the tests, which have no ``Strings``.
+        public static let fallback = SeedNames(prompts: "Prompts", personal: "Personal")
+    }
+
+    public static func migrate(
+        _ database: Database,
+        cipher: FieldCipher,
+        seedNames: SeedNames = .fallback
+    ) throws {
         let version = try database.queryOne("PRAGMA user_version") { Int32($0.int(0)) } ?? 0
         guard version < current else { return }
 
@@ -24,9 +51,74 @@ public enum Schema {
         try database.transaction {
             if version < 1 { try applyV1(database) }
             if version < 2 { try applyV2(database) }
+            if version < 3 { try applyV3(database, cipher: cipher, seedNames: seedNames) }
             // PRAGMA cannot be parameterised, and `current` is a compile-time
             // constant rather than input, so interpolation is safe here.
             try database.execute("PRAGMA user_version = \(current)")
+        }
+    }
+
+    /// Turns the one hard-coded prompt library into an ordered list of equal
+    /// collections.
+    ///
+    /// **The seed runs inside the same transaction as the DDL, not after it.**
+    /// A crash in between would leave a v3 database whose `prompt` rows all
+    /// point at a `collection_id` with no matching row — every entry present in
+    /// the file and none of them reachable from any tab. That is the same class
+    /// of failure the `user_version` stamp is kept in here for.
+    ///
+    /// The new column carries **no** `REFERENCES collection(id)`: SQLite accepts
+    /// a foreign key on `ALTER TABLE ADD COLUMN` only when the default is NULL,
+    /// and this default has to be `'prompts'` so existing rows land somewhere
+    /// without a data move. Referential integrity is therefore the store's job —
+    /// see `deleteCollection`, which moves or deletes members in one
+    /// transaction.
+    private static func applyV3(
+        _ database: Database,
+        cipher: FieldCipher,
+        seedNames: SeedNames
+    ) throws {
+        try database.execute(
+            """
+            CREATE TABLE IF NOT EXISTS collection (
+              id         TEXT PRIMARY KEY,
+              name       BLOB    NOT NULL,
+              symbol     TEXT    NOT NULL,
+              position   INTEGER NOT NULL,
+              created_at INTEGER NOT NULL
+            )
+            """
+        )
+        try database.execute(
+            "ALTER TABLE prompt ADD COLUMN collection_id TEXT NOT NULL "
+                + "DEFAULT '\(LibraryCollection.Seed.prompts)'"
+        )
+        try database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_prompt_collection
+              ON prompt(collection_id, is_pinned DESC, updated_at DESC)
+            """
+        )
+
+        let now = Date()
+        let seeds: [(String, String, CollectionSymbol, Int)] = [
+            (LibraryCollection.Seed.prompts, seedNames.prompts, .textQuote, 0),
+            (LibraryCollection.Seed.personal, seedNames.personal, .person, 1),
+        ]
+        for (id, name, symbol, position) in seeds {
+            try database.execute(
+                """
+                INSERT OR IGNORE INTO collection (id, name, symbol, position, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                [
+                    .text(id),
+                    .blob(try cipher.seal(name)),
+                    .text(symbol.rawValue),
+                    .integer(Int64(position)),
+                    .date(now),
+                ]
+            )
         }
     }
 

@@ -1,13 +1,26 @@
 import Foundation
 
-/// A curated, long-lived instruction — the tier history eviction never touches.
+/// A curated, long-lived entry — the tier history eviction never touches.
 ///
-/// Two fields, on purpose. The 2026-05-28 draft specified `{{variables}}` and
-/// tags; neither is built. Nothing in the real corpus uses a variable, and at
-/// this corpus size a tag is just one more decision to make while saving —
-/// friction that decides whether a personal tool actually gets used.
-public struct PromptItem: Sendable, Identifiable, Equatable {
+/// Two content fields, on purpose. The 2026-05-28 draft specified
+/// `{{variables}}` and tags; neither is built. Nothing in the real corpus uses a
+/// variable, and at this corpus size a tag is just one more decision to make
+/// while saving — friction that decides whether a personal tool actually gets
+/// used.
+///
+/// A GitHub URL and a prompt are the same shape — a `title` and a `body` — and
+/// that observation is what the whole Collections change rests on. What ever
+/// differed between them was not the record; it was which tab it was allowed to
+/// appear in.
+public struct LibraryEntry: Sendable, Identifiable, Equatable {
     public let id: String
+    /// Which collection this lives in.
+    ///
+    /// Mutable, because the editor's collection picker doubles as the only
+    /// "move between collections" affordance — saving writes membership like
+    /// any other field, so no second code path can disagree about where an
+    /// item lives.
+    public var collectionID: String
     public var title: String
     public var body: String
     public var isPinned: Bool
@@ -16,6 +29,7 @@ public struct PromptItem: Sendable, Identifiable, Equatable {
 
     public init(
         id: String = UUID().uuidString,
+        collectionID: String = LibraryCollection.Seed.prompts,
         title: String,
         body: String,
         isPinned: Bool = false,
@@ -23,6 +37,7 @@ public struct PromptItem: Sendable, Identifiable, Equatable {
         updatedAt: Date = Date()
     ) {
         self.id = id
+        self.collectionID = collectionID
         self.title = title
         self.body = body
         self.isPinned = isPinned
@@ -34,7 +49,7 @@ public struct PromptItem: Sendable, Identifiable, Equatable {
     public var preview: String { PreviewText.derive(from: body) }
 
     /// The buttons this row draws, in render order. See ``ClipItem/rowActions``.
-    /// A prompt is editable where a clip is promotable.
+    /// A library item is editable where a clip is promotable.
     public var rowActions: [RowAction] { [.pin, .edit, .expand, .delete] }
 }
 

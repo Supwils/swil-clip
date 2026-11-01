@@ -128,9 +128,9 @@ struct ShortcutReferenceTests {
     func everyCommandIsDocumented() {
         let commands: [KeyCommand] = [
             .moveUp, .moveDown, .moveToFirst, .moveToLast,
-            .beginSearch, .appendToQuery("a"), .deleteQueryCharacter, .clearQuery,
+            .beginSearch, .appendToQuery("a"), .deleteQueryCharacter,
             .switchTab, .confirm, .deleteItem, .togglePin, .toggleExpand,
-            .undo, .newPrompt, .promoteToPrompt, .dismiss, .selectID("x"),
+            .undo, .newItem, .promoteToPrompt, .dismiss, .selectID("x"),
         ]
         let listed = ShortcutReference.documentedActions
         for command in commands {
@@ -259,5 +259,25 @@ extension StringsTests {
         }
         #expect(!en.accentSection.isEmpty && !zh.accentSection.isEmpty)
         #expect(en.appearanceHint != zh.appearanceHint)
+    }
+}
+
+extension StringsTests {
+    @Test("collection copy exists in both languages and is not shared by accident")
+    func collectionCopyIsComplete() {
+        #expect(en.personalTab != zh.personalTab)
+        #expect(en.collectionsSection != zh.collectionsSection)
+        #expect(!en.statusNoCollections.isEmpty && !zh.statusNoCollections.isEmpty)
+        #expect(en.searchCollectionPlaceholder("Personal").contains("Personal"))
+        #expect(zh.searchCollectionPlaceholder("个人").contains("个人"))
+        #expect(en.statusSavedTo("Prompts").contains("Prompts"))
+        #expect(en.moveEntriesButton(to: "Prompts", count: 7).contains("7"))
+        #expect(zh.moveEntriesButton(to: "提示词", count: 7).contains("7"))
+        #expect(en.deleteCollectionButton(count: 7).contains("7"))
+        #expect(zh.deleteCollectionButton(count: 7).contains("7"))
+        #expect(en.deleteCollectionTitle("Work").contains("Work"))
+        #expect(en.collectionCapHint(5).contains("5"))
+        // Never blank — a nameless tab reads as "the app lost something".
+        #expect(!en.collectionUnreadable.isEmpty)
     }
 }

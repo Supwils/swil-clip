@@ -62,7 +62,7 @@ struct KeyMappingTests {
         #expect(map(35, characters: "p") == .togglePin)
         #expect(map(14, characters: "e") == .toggleExpand)
         #expect(map(32, characters: "u") == .undo)
-        #expect(map(45, characters: "n") == .newPrompt)
+        #expect(map(45, characters: "n") == .newItem)
     }
 
     @Test("⇧S promotes rather than opening search")
@@ -124,5 +124,53 @@ struct KeyMappingTests {
         #expect(KeyMapping.isTypable("") == false)
         #expect(KeyMapping.isTypable("a") == true)
         #expect(KeyMapping.isTypable("请") == true)
+    }
+}
+
+@Suite("Reverse tab switching")
+struct ReverseTabSwitchTests {
+    private func command(
+        keyCode: UInt16, modifiers: KeyModifiers, tabSwitch: KeyBinding = .tab
+    ) -> KeyCommand? {
+        KeyMapping.command(
+            keyCode: keyCode, characters: "\t", charactersIgnoringModifiers: "\t",
+            modifiers: modifiers, isSearching: false, tabSwitch: tabSwitch
+        )
+    }
+
+    @Test("⇧⇥ is the reverse of the default ⇥")
+    func shiftTabGoesBack() {
+        #expect(command(keyCode: KeyCode.tab, modifiers: []) == .switchTab)
+        #expect(command(keyCode: KeyCode.tab, modifiers: .shift) == .switchTabBackward)
+    }
+
+    @Test("the reverse follows a rebound key")
+    func followsARebind() {
+        let bound = KeyBinding(keyCode: KeyCode.space, modifiers: .command)
+        #expect(command(keyCode: KeyCode.space, modifiers: .command, tabSwitch: bound) == .switchTab)
+        #expect(
+            command(keyCode: KeyCode.space, modifiers: [.command, .shift], tabSwitch: bound)
+                == .switchTabBackward
+        )
+    }
+
+    /// A binding that already carries ⇧ has no room for a reverse. Documented
+    /// rather than worked around: `←`/`→` on the band reaches every tab anyway.
+    @Test("a binding that already holds ⇧ has no reverse")
+    func noRoomForAReverse() {
+        let bound = KeyBinding(keyCode: KeyCode.tab, modifiers: .shift)
+        #expect(bound.reversed == nil)
+        #expect(command(keyCode: KeyCode.tab, modifiers: .shift, tabSwitch: bound) == .switchTab)
+    }
+
+    /// Checked before search mode, like the forward binding: otherwise typing a
+    /// query would swallow the only way back through the tabs.
+    @Test("⇧⇥ while searching still switches tabs rather than typing a tab")
+    func searchDoesNotSwallowIt() {
+        let typed = KeyMapping.command(
+            keyCode: KeyCode.tab, characters: "\t", charactersIgnoringModifiers: "\t",
+            modifiers: .shift, isSearching: true, tabSwitch: .tab
+        )
+        #expect(typed == .switchTabBackward)
     }
 }

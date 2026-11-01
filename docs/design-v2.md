@@ -2,8 +2,8 @@
 
 **Status:** Approved 2026-08-20. Supersedes the Tauri implementation, which is
 frozen at v0.1.3.
-**Decisions recorded in:** [ADR-0001](../../adr/0001-freeze-tauri-adopt-swift.md),
-[ADR-0002](../../adr/0002-reopen-prompt-library.md)
+**Decisions recorded in:** [ADR-0001](./adr/0001-freeze-tauri-adopt-swift.md),
+[ADR-0002](./adr/0002-reopen-prompt-library.md)
 
 ---
 

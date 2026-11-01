@@ -18,10 +18,14 @@ import SwilClipCore
 /// cannot disagree with the key that actually works.
 struct SettingsView: View {
     @Bindable var settings: Settings
+    /// Needed by the Collections pane, which is the only place the tab list is
+    /// edited. Nothing else in this sheet touches the model.
+    @Bindable var model: AppModel
     let onClose: () -> Void
 
     private enum Pane: String, CaseIterable, Identifiable {
         case general
+        case collections
         case shortcuts
         var id: String { rawValue }
     }
@@ -51,6 +55,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     switch pane {
                     case .general: generalPane
+                    case .collections: CollectionsPane(model: model)
                     case .shortcuts: ShortcutSheet(settings: settings)
                     }
                 }
@@ -92,6 +97,7 @@ struct SettingsView: View {
             Spacer(minLength: 0)
             Picker("", selection: $pane) {
                 Text(strings.paneGeneral).tag(Pane.general)
+                Text(strings.collectionsPane).tag(Pane.collections)
                 Text(strings.paneShortcuts).tag(Pane.shortcuts)
             }
             .pickerStyle(.segmented)
@@ -465,7 +471,12 @@ private struct ShortcutSheet: View {
     private var sections: [ShortcutSection] {
         ShortcutReference.sections(
             summon: settings.hotkey.displayString,
-            tabSwitch: settings.tabSwitchKey.displayString
+            tabSwitch: settings.tabSwitchKey.displayString,
+            // Derived from the live binding, so the printed keycap cannot
+            // disagree with the key that works — and the row disappears
+            // entirely when the binding already carries ⇧ and there is no
+            // reverse to print.
+            tabSwitchBackward: settings.tabSwitchKey.reversed?.displayString
         )
     }
 

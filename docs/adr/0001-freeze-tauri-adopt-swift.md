@@ -17,7 +17,7 @@ optionality. Under the new goal both justifications collapse.
   for an option we had already decided never to take.
 - As a work sample, a Rust+WebView clipboard manager competes with Maccy, which
   is native Swift. The comparison is not flattering and the reviewer will make it.
-- `docs/code-review.md` records SC-07: every mutation re-encrypts the entire
+- `docs/v1/code-review.md` records SC-07: every mutation re-encrypts the entire
   history blob. Three separate caps (50 entries, 10 MB per clip, 32 MB total)
   exist solely to make that O(n) tolerable. This is an architectural defect that
   cannot be fixed incrementally — only by changing the storage model.

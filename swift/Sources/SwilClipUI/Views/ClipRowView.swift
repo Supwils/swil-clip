@@ -234,6 +234,12 @@ struct HighlightedText: View {
     let text: String
     let query: String
     let font: Font
+    /// Colour for the runs that did *not* match.
+    ///
+    /// Matched runs always take the accent — that is the whole point — but a
+    /// secondary line needs a dimmer base so it stays subordinate to the title
+    /// above it. Defaulted, so every existing call site is unaffected.
+    var base: Color = Token.Foreground.primary
 
     var body: some View {
         Text(attributed)
@@ -242,7 +248,7 @@ struct HighlightedText: View {
 
     private var attributed: AttributedString {
         var result = AttributedString(text)
-        result.foregroundColor = Token.Foreground.primary
+        result.foregroundColor = base
 
         let ranges = Matcher.highlightRanges(of: query, in: text)
         for range in ranges {

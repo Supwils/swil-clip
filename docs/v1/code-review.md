@@ -3,7 +3,7 @@
 > ### ⚠️ 适用范围：`tauri/`（已冻结于 v0.1.3）
 >
 > **2026-08-20 起**，本登记册仅描述冻结的 Tauri 实现。见
-> [ADR-0001](./adr/0001-freeze-tauri-adopt-swift.md)。
+> [ADR-0001](../adr/0001-freeze-tauri-adopt-swift.md)。
 >
 > - **SC-05 已修复**（冻结前的最后一次改动）——静默丢数据不能被封存进存档。
 > - **其余 open findings 不再修复。** SC-07 / SC-17 / SC-18 由 Swift 重写的

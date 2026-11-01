@@ -29,7 +29,7 @@ Everything below describes the Swift app.
 
 ```bash
 cd swift
-swift test                        # 220 tests, headless, ~0.15s
+swift test                        # 219 tests, headless, ~0.15s
 bash scripts/bundle.sh            # debug .app → swift/build/SwilClip.app
 bash scripts/bundle.sh --release  # universal, Developer ID signed
 bash scripts/release.sh           # …plus notarized, stapled, packaged as a .dmg
@@ -253,15 +253,20 @@ binary's signature differs from v1's. Choose **Always Allow**.
 ```
 swift/Sources/
 ├── SwilClipCore/     pure Swift, no AppKit — the whole test suite runs headless
-│   ├── Models/       ClipItem · PromptItem · ContentKind
+│   ├── Models/       ClipItem · LibraryEntry · LibraryCollection · ContentKind
 │   ├── Crypto/       FieldCipher · KeychainKeyStore
 │   ├── Database/     SQLite wrapper · Schema · LocalStore
 │   ├── Search/       Matcher
 │   ├── Selection/    SelectionReducer · PanelFocus · KeyMapping · ShortcutReference
 │   ├── Localization/ Strings · AppLanguage · Appearance · AccentPalette
 │   └── Migration/    LegacyImporter
-└── SwilClip/         AppKit windowing + SwiftUI views
+├── SwilClipUI/       AppKit windowing + SwiftUI views + AppModel
+└── SwilClip/         main.swift — the process entry point, and nothing else
 ```
+
+The shell is a library rather than part of the executable for one reason: SPM
+cannot reliably `@testable import` an executable target, and the shell is where
+every user-visible defect this project has shipped came from.
 
 Anything decidable without a window lives in `SwilClipCore`. That includes the
 entire keyboard model: `NSEvent` is unwrapped in the app target, but *which
@@ -275,11 +280,13 @@ commands, and never write selection themselves.
 
 ## Documentation
 
-- [v2 design spec](docs/superpowers/specs/2026-08-20-swift-rewrite-prompt-library-design.md)
+- [v2 design spec](docs/design-v2.md)
+- [Collections design](docs/design-collections.md) — user-defined tabs, and why there is no built-in flag
+- [Roadmap](docs/roadmap.md) — what comes after v2.0.0, and why in that order
 - [ADR-0001 — freeze Tauri, adopt Swift](docs/adr/0001-freeze-tauri-adopt-swift.md)
 - [ADR-0002 — reopen the prompt library](docs/adr/0002-reopen-prompt-library.md)
 - [UI design system](docs/ui-design.md) — "Brushed Quartz", canonical
-- [Code review register](docs/code-review.md) — scoped to the frozen `tauri/` tree
+- [Code review register](docs/v1/code-review.md) — scoped to the frozen `tauri/` tree
 - [Swift audit](docs/code-review-swift.md) — an external review of `swift/`, and what came of it
 - [Changelog](CHANGELOG.md)
 - [Releasing](docs/releasing.md) — signing, notarization, packaging

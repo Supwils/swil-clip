@@ -20,7 +20,9 @@ final class PanelController: NSObject, NSWindowDelegate {
         super.init()
 
         model.onDismiss = { [weak self] in self?.hide() }
-        model.onEditPrompt = { [weak self] prompt in self?.presentEditor(for: prompt) }
+        model.onEditItem = { [weak self] entry, collectionID in
+            self?.presentEditor(for: entry, startingIn: collectionID)
+        }
         model.onOpenSettings = { [weak self] in self?.presentSettings() }
         settings.onPanelSizeChange = { [weak self] in self?.applyPanelSize() }
     }
@@ -105,27 +107,23 @@ final class PanelController: NSObject, NSWindowDelegate {
         return panel
     }
 
-    /// Restore the remembered position when it is still reachable, otherwise
-    /// fall back to the cursor.
+    /// Resolve the panel on the display that currently contains the pointer.
     ///
-    /// v1 shipped SC-03 here: a saved position could land the panel off-screen
-    /// with no way to get it back. The check is now explicit and the geometry it
-    /// uses is unit-tested in `SwilClipCore`.
+    /// A remembered position may be restored only when it belongs to this same
+    /// display. Looking for it across every attached display made a valid saved
+    /// coordinate override the summon display, effectively pinning the panel to
+    /// whichever monitor it had last been dragged on.
     private func resolveOrigin(panelSize: CGSize) -> CGPoint {
-        let screens = NSScreen.screens.map(\.visibleFrame)
-
-        if let saved = settings.panelOrigin,
-           PanelPlacement.isRestorable(origin: saved, panelSize: panelSize, screens: screens) {
-            return saved
-        }
-
         let cursor = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { $0.frame.contains(cursor) }
             ?? NSScreen.main
             ?? NSScreen.screens.first
         guard let visibleFrame = screen?.visibleFrame else { return .zero }
         return PanelPlacement.origin(
-            forCursor: cursor, panelSize: panelSize, visibleFrame: visibleFrame
+            forCursor: cursor,
+            panelSize: panelSize,
+            visibleFrame: visibleFrame,
+            savedOrigin: settings.panelOrigin
         )
     }
 
@@ -167,23 +165,27 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     // MARK: - Secondary windows
 
-    private func presentEditor(for prompt: PromptItem?) {
+    private func presentEditor(for entry: LibraryEntry?, startingIn collectionID: String) {
         guard editorWindow == nil else { return }
 
-        let editor = PromptEditorView(
-            prompt: prompt,
+        let editor = LibraryEditorView(
+            entry: entry,
+            collections: model.collections,
+            initialCollectionID: collectionID,
             onCancel: { [weak self] in self?.dismissEditor() },
-            onSave: { [weak self] title, body in
+            onSave: { [weak self] title, body, target in
                 guard let self else { return }
                 Task {
-                    await self.model.savePrompt(id: prompt?.id, title: title, body: body)
+                    await self.model.saveItem(
+                        id: entry?.id, title: title, body: body, collectionID: target
+                    )
                     self.dismissEditor()
                 }
             }
         )
 
         let window = Self.makeSheetWindow(
-            size: PromptEditorView.preferredSize,
+            size: LibraryEditorView.preferredSize,
             content: Localized(settings: settings) { editor }
         )
         editorWindow = window
@@ -198,7 +200,9 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     private func presentSettings() {
         guard settingsWindow == nil else { return }
-        let view = SettingsView(settings: settings) { [weak self] in self?.dismissSettings() }
+        let view = SettingsView(settings: settings, model: model) { [weak self] in
+            self?.dismissSettings()
+        }
         let window = Self.makeSheetWindow(size: SettingsView.preferredSize, content: view)
         settingsWindow = window
         panel?.beginSheet(window) { [weak self] _ in self?.settingsWindow = nil }

@@ -47,6 +47,26 @@ public enum PanelPlacement {
         )
     }
 
+    /// Resolve a summon on one specific display.
+    ///
+    /// A remembered position is only meaningful on the display being summoned
+    /// from. Accepting a saved origin from *any* attached display pins the panel
+    /// there forever: moving the pointer to another display still restores the
+    /// old coordinates. Keeping this decision in Core makes that multi-display
+    /// regression testable without a window server.
+    public static func origin(
+        forCursor cursor: CGPoint,
+        panelSize: CGSize,
+        visibleFrame: CGRect,
+        savedOrigin: CGPoint?
+    ) -> CGPoint {
+        if let savedOrigin,
+           isRestorable(origin: savedOrigin, panelSize: panelSize, screens: [visibleFrame]) {
+            return savedOrigin
+        }
+        return origin(forCursor: cursor, panelSize: panelSize, visibleFrame: visibleFrame)
+    }
+
     /// Force a rectangle fully inside `visibleFrame`.
     ///
     /// Clamping runs on every path, including restored positions. A panel that

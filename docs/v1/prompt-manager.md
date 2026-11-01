@@ -10,7 +10,7 @@
 > 本文档头部当年写下的解封条件——"理解过去为何拒绝，再讨论是否情况变化"——已满足。
 >
 > **实施版本与本稿的差异**（以
-> [v2 spec](../superpowers/specs/2026-08-20-swift-rewrite-prompt-library-design.md)
+> [v2 spec](../design-v2.md)
 > 为准，本文件保留为设计沿革）：
 >
 > | 本稿设计 | v2 实际 | 原因 |

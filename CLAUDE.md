@@ -23,8 +23,19 @@ tauri/    已冻结在 v0.1.3。Tauri 2 + React + Rust。只修不再演进。
 docs/     ADR、设计规范、评审登记册。
 ```
 
+`swift/` 里有**三个** target,别放错文件:
+
+| target | 内容 | 能不能被测试 import |
+|---|---|---|
+| `SwilClipCore` | 纯 Swift,不许 import AppKit | ✅ `SwilClipCoreTests` |
+| `SwilClipUI` | 壳层全部(视图、AppModel、AppDelegate、面板) | ✅ `SwilClipUITests` |
+| `SwilClip` | **只有 `main.swift`**,7 行进程入口 | ❌ 不需要 |
+
+SPM 无法可靠地 `@testable import` 一个 executable —— 这就是壳层 4,600 行长期零测试、
+四个接线 bug 全从这里发出去的原因。**不要把任何逻辑写回 `main.swift`。**
+
 **2026-08-20 起 `tauri/` 冻结**,见 [ADR-0001](docs/adr/0001-freeze-tauri-adopt-swift.md)。
-除非用户明确要求,**不要给它加功能或修 bug** —— `docs/code-review.md` 里除 SC-05(已修)外的
+除非用户明确要求,**不要给它加功能或修 bug** —— `docs/v1/code-review.md` 里除 SC-05(已修)外的
 open findings **一律不修**,其中 SC-07/SC-17/SC-18 已被 Swift 重写的存储模型从结构上消解。
 它留在仓库里是刻意的:两次技术选型的证据。
 
@@ -46,8 +57,11 @@ open findings **一律不修**,其中 SC-07/SC-17/SC-18 已被 Swift 重写的�
 - 排序时 **correctness / 静默数据丢失 / 安全叙事自洽性 一律高于新功能**。
 - 出现"为 star 数/下载量调整功能优先级"的苗头要**提醒用户**,那是偏离 (a)(b)。
 
-`docs/version-roadmap.md` 的 Non-Goals 仍然有效,**但提示词库已于 2026-08-20 解禁**。
+`docs/v1/version-roadmap.md` 的 Non-Goals 仍然有效,**但提示词库已于 2026-08-20 解禁**。
 `{{变量}}`、tags、文件夹、同步、跨平台、AI 功能**仍然不做**。
+
+**下一阶段的计划在 [docs/roadmap.md](docs/roadmap.md)**,已按上面这条排序规则排过序:
+先把外壳拉进测试(4618 行、零测试、14 条评审里占 10 条),再动日常磨损,最后才是改名。
 
 ---
 
@@ -85,13 +99,20 @@ v1 最严重的线上 bug 是**按 `d` 删错行**:cmdk 自己另存了一份 se
 - **焦点只存在 `State.focus` 一处**(`PanelFocus`),视图只读不写。它决定 `⏎` 干什么。
 - **焦点跟 `RowAction` 的身份走,绝不跟下标走。** 文本行 4 个按钮、图片行 3 个;用下标会让
   焦点从「存词库」悄悄滑到「展开」—— 删错行换了个马甲。
-- **按钮由 `ClipItem/PromptItem.rowActions` 生成,reducer 收到同一个数组。** 不许在 view 里
+- **按钮由 `ClipItem/LibraryEntry.rowActions` 生成,reducer 收到同一个数组。** 不许在 view 里
   手写按钮 HStack。
 - **`⏎` 打在按钮上时 recurse 回 `reduce(state, action.command, ...)`。** 不是第二份 delete
   实现,是同一份的第二个入口。`PanelFocusTests` 逐个动作比对两条路径的 `state` 和 `effect`。
 - **只有 delete 清掉按钮焦点**(它换了选中行);pin / expand 保持。
-- **顶栏是一条有站点的 band**,站点由 `PanelTab.topBarItems` 推导(`+` 只在提示词页),
-  顶栏渲染同一个数组。`←/→` 在标签上**先花在切页上**,切到头才走到 `+` / 齿轮。
+- **顶栏是一条有站点的 band**,站点由 `PanelTab.topBarItems` 推导,顶栏渲染同一个数组。
+  `＋` 出现在**每一个 collection 页**、不出现在剪贴板页 —— 这是关于「加号挨着『剪贴板』
+  读起来像什么」的判断,**不是**关于能力的声明:在剪贴板上按 `n` 照样新建条目(落到第一个
+  集合)。这处不对称是刻意的。
+- **`←/→` 在标签上先花在切页上**,走到最后一个标签才迈向 `＋` / 齿轮。
+- **`⇥` 循环、`←/→` 不循环。** 看起来矛盾,其实是同一条规则:
+  **边界可见时 wrap 才是安全的。** 列表无界、两端都在屏幕外,所以 `neighbour` 拒绝 wrap;
+  tab 条最多六个站点、每个都画出来了,所以 `⇥` 可以 wrap。而 band 上的箭头**另有去处**
+  (`＋` 和齿轮),让它 wrap 就等于把那两个站点用箭头永远够不到。
 - **band 是面板级的,不是标签页级的** —— `SelectionReducer.swapTab` 是那条规则。
 - **`reconcile` 的顺序有坑:** 传进来的 `actions` 描述的是**调用前**那一行。所以只要它挪了
   选中项,按钮焦点必须整个丢掉;而且**只清 row 焦点,不许碰 `.tabs`**。
@@ -109,6 +130,12 @@ v1 最严重的线上 bug 是**按 `d` 删错行**:cmdk 自己另存了一份 se
   **里面**。写外面时 commit 完、盖章前崩一次,库就带着 v2 的列却自称 v0 —— 下次重跑
   `applyV2`,而 `ALTER TABLE` 不像 v1 的 `CREATE TABLE IF NOT EXISTS` 幂等,一个其实
   完好的库再也打不开。
+- **v3 的播种必须和 DDL 同一个事务。** 崩在中间会留下一个 v3 的库,里面每条 `prompt` 的
+  `collection_id` 都指向一个不存在的行 —— 条目全在文件里,却从任何标签页都够不到。
+- **`prompt.collection_id` 没有外键,这是被 SQLite 逼的:**`ALTER TABLE ADD COLUMN` 只在
+  默认值为 NULL 时接受 `REFERENCES`,而这里的默认值必须是 `'prompts'`(旧行要不搬家就落
+  到一个家)。所以 `LocalStore.deleteCollection` **就是**那道完整性边界 —— 移动/删除成员和
+  删除集合在一个事务里。
 - **缩略图存行内加密列,不存 sidecar。** 这样"删图必删缩略图"是 schema 的性质。seal 失败
   必须落 `.null` 不是空 `Data()` —— backfill 查 `thumbnail IS NULL`,空 blob 会被当成
   "已经有了",永远补不上。
@@ -124,6 +151,12 @@ v1 最严重的线上 bug 是**按 `d` 删错行**:cmdk 自己另存了一份 se
   这就是 SC-05 换了个机制原样重演。写回要 `cipher.seal`,`content` 列放预览标签而不是图片。
 - **缺字节抛 `RestoreFailure.missingImageData`,抛在插行之前**,不许留一个假装有图的行。
 - **撤销失败要把条目放回栈里。** 无条件 `removeFirst` 会让用户同时失去那一行和唯一的退路。
+- **删除集合的撤销是一条操作,不是两条。** `deletedCollection(collection:entries:)` 存的是
+  **改动前**的成员快照,而 `LibraryEntry` 自带 `collectionID` —— 所以同一条 undo 同时覆盖
+  「连同条目一起删」(重新插回)和「把条目移走」(把 `collection_id` 改回来)两种路径。
+  恢复顺序是**先集合后条目**,不许有一瞬间条目无家可归。
+- **undo 一律在写入成功之后才压栈。** 失败的删除/pin 如果也占掉一个栈位,用户那一次 `u`
+  就花在了一个静默的空操作上。
 
 ### 5.2 pin / unpin 的排序语义
 
@@ -181,6 +214,13 @@ v1 最严重的线上 bug 是**按 `d` 删错行**:cmdk 自己另存了一份 se
 - **不需要 `onLanguageChange`。** `@Observable` 已覆盖 SwiftUI;唯一的 AppKit 界面(菜单栏菜单)
   每次打开都重建。加个没人订阅的 hook 就是死代码。
 
+**集合的名字是用户数据,不是 UI 文案,所以它不在 `Strings` 里。** `Strings` 之所以能做成
+穷举的属性表,正因为界面文案必须两种语言都有;而用户敲进去的名字只存在于他敲的那一种。
+迁移播种的 `Prompts` / `Personal` 用**当时**的界面语言写一次,此后就是普通用户数据 ——
+**切换语言不会跟着变**,这是刻意的取舍(见 `LibraryCollection` 的类型文档),不是 bug。
+读不出来的名字要标 `isUnreadable` 并显示 `—`,不许留空 —— 无名标签页看起来就是「app 把
+我的东西弄丢了」。
+
 ### 8.1 快捷键说明书 —— 不许手写第二份
 
 `ShortcutReference` 是**结构**(动作、分组、按哪个键),`Strings` 是**文案**,设置页只是渲染。
@@ -206,9 +246,16 @@ Core 的规则再漂亮,壳层漏接一根线就等于没有。**已经踩过的
 - **undo 跨 tab 要走 `swapTabState`**,不许直接 `selection.tab = tab` —— 那会跳过 query /
   搜索态的存取,把当前页的搜索拖到另一边。
 - **登录项状态不许缓存。** `SMAppService.mainApp.status` 是唯一真相,每次读实时值。
+- **`AppModel.onEditItem` 带着目标集合 id**(`(LibraryEntry?, String)`)。编辑器的集合
+  选择器要预选它;漏传就等于新建条目永远落在同一个地方。
+- **`SettingsView` 现在需要 `model`**(集合管理面板是唯一编辑标签页列表的地方)。
+- **说明书里的 `⇧⇥` 由 `settings.tabSwitchKey.reversed?.displayString` 传入**,不是常量。
+  漏接的症状是「键能用、手册不写」—— 和 SW-01 的「键帽变了、生效的还是旧组合」同一类错,
+  只是方向相反。
 
-**教训**:Core 有测试而壳层没有,所以壳层的错只能靠**接线级冒烟**发现。改任何 `on*Change`
-回调或菜单项时,手动走一遍那条路径。
+**教训**:Core 有测试而壳层没有 —— 但 **2026-08-21 起壳层有了 `SwilClipUITests`**(见 §1),
+所以新的壳层规则应该写成测试而不是写进这一节。仍然只能靠手动冒烟发现的,是真正需要窗口
+服务器的那部分(菜单栏、sheet、热键注册)。改任何 `on*Change` 回调或菜单项时,手动走一遍。
 
 ---
 
@@ -216,7 +263,7 @@ Core 的规则再漂亮,壳层漏接一根线就等于没有。**已经踩过的
 
 - **不要自动 commit / push**(见 §0)。
 - `.githooks/pre-push` 每次 push 前跑两棵树的门禁:
-  - `swift/` → `swift test`(220 测试,无 GUI,约 0.15s)
+  - `swift/` → `swift test`(270 测试,无 GUI,约 0.2s;Core 与壳层两个套件)
   - `tauri/` → `pnpm prepush`(typecheck + lint + test + cargo test),让冻结的存档不会烂掉
 - 刻意**不含** release 构建与公证(重、平台相关),留给手动。紧急绕过:`git push --no-verify`。
 - 发布流程见 [docs/releasing.md](docs/releasing.md)。凭据在仓库根的 `.env.release`(已 gitignore)。

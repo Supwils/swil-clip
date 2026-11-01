@@ -179,4 +179,4 @@ protocol PinnableRow {
 }
 
 extension ClipItem: PinnableRow {}
-extension PromptItem: PinnableRow {}
+extension LibraryEntry: PinnableRow {}

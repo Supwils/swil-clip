@@ -1,19 +1,19 @@
 # SwilClip 版本规划（v0 / v1）
 
 > ⚠️ **2026-08-21：本文档描述的是 Tauri 树（现已冻结在 v0.1.3）的规划。**
-> Swift 重写（v2.0.0）的交付内容见 [CHANGELOG](../CHANGELOG.md)，设计见
-> [v2 设计规范](./superpowers/specs/2026-08-20-swift-rewrite-prompt-library-design.md)。
+> Swift 重写（v2.0.0）的交付内容见 [CHANGELOG](../../CHANGELOG.md)，设计见
+> [v2 设计规范](../design-v2.md)。
 > **本节的 Non-Goals 仍然有效并适用于 v2**（提示词库那一条已解禁，见下）。
 
 本文档约定：**v0 = 当前已交付能力**（以仓库实现为准）；**v1 = 下一阶段的打磨与稳态目标**。
 
-更完整的架构与 IPC 说明见 [init-doc.md](./init-doc.md)。
+更完整的架构与 IPC 说明见 [init-doc.md](./architecture.md)。
 
 ---
 
 ## 产品方向（已锁定）— 非目标 (Non-Goals)
 
-**决策日期：2026-05-28** · **部分修订：2026-08-20**（见 [ADR-0001](./adr/0001-freeze-tauri-adopt-swift.md) / [ADR-0002](./adr/0002-reopen-prompt-library.md)）
+**决策日期：2026-05-28** · **部分修订：2026-08-20**（见 [ADR-0001](../adr/0001-freeze-tauri-adopt-swift.md) / [ADR-0002](../adr/0002-reopen-prompt-library.md)）
 **路线：极简纯粹派 / "更现代的 Maccy"**
 
 > ⚠️ **2026-08-20 修订**：项目目标已从"产品"收敛为「(a) 自用工具 + (b) 作品集」。
@@ -33,7 +33,7 @@ SwilClip 是一个**被动剪贴板历史工具**，不是 snippet 库、不是 
 
 下列条目**任何时候都不应进入 roadmap**。任何"也许我们可以加一下"的讨论都应回到本节。
 
-- ✅ ~~**Snippet / Prompt 库**~~ —— **2026-08-20 解禁**，见 [ADR-0002](./adr/0002-reopen-prompt-library.md)。
+- ✅ ~~**Snippet / Prompt 库**~~ —— **2026-08-20 解禁**，见 [ADR-0002](../adr/0002-reopen-prompt-library.md)。
   原否决的三条理由（"这是另一个产品"、"和 Raycast 冲突"、"用户会不会离开"）**全部是市场理由**，
   在目标转为自用+作品集后不再成立。设计草案 `docs/v1/prompt-manager.md` 已同步解封。
 - ❌ **模板变量 / 占位符展开**（`{{clipboard}}`、日期、选中文本等）——**仍然不做**。
@@ -152,5 +152,5 @@ v1 **不是**功能扩张，而是把 v0 已有的能力打磨到"行业第一�
 
 ## 文档维护
 
-- 当发布新能力时：将对应条目从 **v1** 移至 **v0**，并在 [init-doc.md](./init-doc.md) 中更新相关章节（功能、IPC、里程碑）。
+- 当发布新能力时：将对应条目从 **v1** 移至 **v0**，并在 [init-doc.md](./architecture.md) 中更新相关章节（功能、IPC、里程碑）。
 - 若版本语义变更（例如引入 v2），在本文件顶部更新定义即可。

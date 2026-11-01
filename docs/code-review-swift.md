@@ -1,7 +1,7 @@
 # Swift audit register
 
 Scoped to `swift/`. The Tauri tree has its own register in
-[`code-review.md`](./code-review.md) and is frozen.
+[`code-review.md`](./v1/code-review.md) and is frozen.
 
 Format matches the v1 register: each finding gets an ID, a verdict, and — once
 closed — the test that keeps it closed. A finding is only closed when something

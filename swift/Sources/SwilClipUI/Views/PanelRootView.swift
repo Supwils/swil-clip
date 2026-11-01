@@ -21,17 +21,16 @@ struct PanelRootView: View {
             VStack(spacing: 0) {
                 DragStrip()
                 TabBar(
-                    tab: model.selection.tab,
+                    tabs: model.tabs,
+                    current: model.selection.tab,
                     focusedItem: model.selection.focus.topBarItem,
                     strings: strings,
                     clipCount: model.clips.count,
-                    promptCount: model.prompts.count,
+                    collections: model.collections,
+                    entryCount: { model.entryCount(in: $0) },
                     switchKeyLabel: model.settings.tabSwitchKey.displayString,
-                    onSelect: { tab in
-                        guard tab != model.selection.tab else { return }
-                        model.handle(.switchTab)
-                    },
-                    onNewPrompt: { model.handle(.newPrompt) },
+                    onSelect: { tab in select(tab) },
+                    onNewItem: { model.handle(.newItem) },
                     onOpenSettings: { model.onOpenSettings?() }
                 )
                 Hairline()
@@ -39,9 +38,9 @@ struct PanelRootView: View {
                 if model.selection.isSearching {
                     SearchField(
                         query: model.selection.query,
-                        placeholder: model.selection.tab == .clipboard
+                        placeholder: model.currentCollectionID == nil
                             ? strings.searchHistoryPlaceholder
-                            : strings.searchPromptsPlaceholder
+                            : strings.searchCollectionPlaceholder(currentCollectionName)
                     )
                     .padding(.top, 6 * metrics.scale)
                 }
@@ -63,16 +62,39 @@ struct PanelRootView: View {
         .task(id: model.selection.expandedID) { await loadExpansion() }
     }
 
+    /// Clicking a tab is the same command the keyboard emits, repeated — so the
+    /// click cannot take a second path with its own idea of what a handover is.
+    private func select(_ tab: PanelTab) {
+        guard tab != model.selection.tab,
+              let target = model.tabs.firstIndex(of: tab),
+              let current = model.tabs.firstIndex(of: model.selection.tab)
+        else { return }
+        let command: KeyCommand = target > current ? .switchTab : .switchTabBackward
+        for _ in 0..<abs(target - current) { model.handle(command) }
+    }
+
+    private var currentCollectionSymbol: CollectionSymbol {
+        guard let id = model.currentCollectionID else { return .textQuote }
+        return model.collections.first { $0.id == id }?.symbol ?? .textQuote
+    }
+
+    private var currentCollectionName: String {
+        guard let id = model.currentCollectionID,
+              let collection = model.collections.first(where: { $0.id == id })
+        else { return "" }
+        return collection.isUnreadable ? strings.collectionUnreadable : collection.name
+    }
+
     // MARK: - List
 
     private var list: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: metrics.rowGap) {
-                    if model.selection.tab == .clipboard {
+                    if model.currentCollectionID == nil {
                         clipRows
                     } else {
-                        promptRows
+                        entryRows
                     }
                 }
                 .padding(.horizontal, metrics.edge - metrics.row)
@@ -181,26 +203,28 @@ struct PanelRootView: View {
     }
 
     @ViewBuilder
-    private var promptRows: some View {
-        let prompts = model.visiblePrompts
+    private var entryRows: some View {
+        let prompts = model.visibleEntries
         if prompts.isEmpty {
             EmptyState(
-                symbol: model.selection.isSearching ? "magnifyingglass" : "text.quote",
+                symbol: model.selection.isSearching
+                    ? "magnifyingglass" : currentCollectionSymbol.rawValue,
                 title: model.selection.isSearching
                     ? strings.emptyNoMatchesTitle
-                    : strings.emptyPromptsTitle,
+                    : strings.emptyCollectionTitle,
                 hint: model.selection.isSearching
                     ? strings.emptyNoMatchesHint
-                    : strings.emptyPromptsHint
+                    : strings.emptyCollectionHint
             )
             .frame(height: metrics.panelHeight / 2)
         } else {
             ForEach(Array(prompts.enumerated()), id: \.element.id) { index, prompt in
                 if isFirstUnpinned(at: index, in: prompts) {
-                    SectionDivider(label: strings.dividerLibrary)
+                    SectionDivider(label: strings.dividerSaved)
                 }
-                PromptRowView(
-                    prompt: prompt,
+                LibraryRowView(
+                    entry: prompt,
+                    symbol: currentCollectionSymbol,
                     isSelected: model.selection.selectedID == prompt.id,
                     query: model.selection.isSearching ? model.selection.query : "",
                     isExpanded: model.selection.expandedID == prompt.id,
@@ -241,7 +265,7 @@ struct PanelRootView: View {
         expandedText = nil
         expandedImage = nil
         guard let id = model.selection.expandedID else { return }
-        if model.selection.tab == .clipboard,
+        if model.currentCollectionID == nil,
            let clip = model.clips.first(where: { $0.id == id }),
            clip.kind == .image {
             expandedImage = await model.imageData(for: id)
@@ -281,55 +305,106 @@ private struct DragStrip: View {
 private struct TabBar: View {
     @Environment(\.metrics) private var metrics
     @Environment(\.theme) private var theme
-    let tab: PanelTab
+    let tabs: [PanelTab]
+    let current: PanelTab
     /// Which stop the keyboard is on, if it has arrowed up out of the list.
     let focusedItem: TopBarItem?
     let strings: Strings
     let clipCount: Int
-    let promptCount: Int
+    let collections: [LibraryCollection]
+    let entryCount: (String) -> Int
     /// Rendered on the keycap so the reminder always matches the real binding.
     let switchKeyLabel: String
     let onSelect: (PanelTab) -> Void
-    let onNewPrompt: () -> Void
+    let onNewItem: () -> Void
     let onOpenSettings: () -> Void
 
+    /// What the bar gives up, in order, when it will not fit.
+    ///
+    /// The same device `FooterBar.hints` uses, and the order is as deliberate
+    /// here as there: inactive counts go first because they are the least
+    /// load-bearing thing on the bar, inactive names go second because an icon
+    /// you chose yourself is a usable identifier. The active tab never
+    /// degrades — losing the label for *where you are* is the one thing the bar
+    /// exists to say.
+    private enum Density { case full, noInactiveCounts, iconsOnly }
+
     var body: some View {
-        HStack(spacing: 2 * metrics.scale) {
-            tabButton(.clipboard, label: strings.clipboardTab, count: clipCount)
-            tabButton(.prompts, label: strings.promptsTab, count: promptCount)
-            Spacer(minLength: 0)
-            Keycap(label: switchKeyLabel)
-                .opacity(0.55)
-            // Rendered from `tab.topBarItems` — the same array the reducer
-            // steps along — so a stop cannot exist in one and not the other.
-            ForEach(tab.topBarItems.filter { $0 != .tabs }) { item in
-                RowActionButton(
-                    symbol: item == .newPrompt ? "plus" : "gearshape",
-                    help: item == .newPrompt ? strings.newPromptTooltip : strings.settingsTooltip,
-                    isFocused: focusedItem == item,
-                    action: item == .newPrompt ? onNewPrompt : onOpenSettings
-                )
-            }
+        ViewThatFits(in: .horizontal) {
+            bar(.full)
+            bar(.noInactiveCounts)
+            bar(.iconsOnly)
         }
         .padding(.horizontal, metrics.edge)
         .padding(.bottom, 6 * metrics.scale)
     }
 
-    private func tabButton(_ target: PanelTab, label: String, count: Int) -> some View {
-        let isActive = tab == target
+    private func bar(_ density: Density) -> some View {
+        HStack(spacing: 2 * metrics.scale) {
+            ForEach(tabs, id: \.storageKey) { tab in
+                tabButton(tab, density: density)
+            }
+            Spacer(minLength: 0)
+            Keycap(label: switchKeyLabel)
+                .opacity(0.55)
+            // Rendered from `current.topBarItems` — the same array the reducer
+            // steps along — so a stop cannot exist in one and not the other.
+            ForEach(current.topBarItems.filter { $0 != .tabs }) { item in
+                RowActionButton(
+                    symbol: item == .newItem ? "plus" : "gearshape",
+                    help: item == .newItem ? strings.newItemTooltip : strings.settingsTooltip,
+                    isFocused: focusedItem == item,
+                    action: item == .newItem ? onNewItem : onOpenSettings
+                )
+            }
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func collection(for tab: PanelTab) -> LibraryCollection? {
+        guard let id = tab.collectionID else { return nil }
+        return collections.first { $0.id == id }
+    }
+
+    private func label(for tab: PanelTab) -> String {
+        guard let collection = collection(for: tab) else { return strings.clipboardTab }
+        // Never blank: a nameless tab reads as "the app lost something".
+        return collection.isUnreadable ? strings.collectionUnreadable : collection.name
+    }
+
+    private func symbol(for tab: PanelTab) -> String {
+        collection(for: tab)?.symbol.rawValue ?? "doc.on.clipboard"
+    }
+
+    private func count(for tab: PanelTab) -> Int {
+        guard let id = tab.collectionID else { return clipCount }
+        return entryCount(id)
+    }
+
+    private func tabButton(_ target: PanelTab, density: Density) -> some View {
+        let isActive = target == current
+        let showsName = isActive || density != .iconsOnly
+        let showsCount = count(for: target) > 0 && (isActive || density == .full)
+
         return Button { onSelect(target) } label: {
             HStack(spacing: 4 * metrics.scale) {
-                Text(label)
-                    .font(metrics.brandFont)
+                Image(systemName: symbol(for: target))
+                    .font(.system(size: metrics.actionGlyph, weight: .medium))
                     .foregroundStyle(
                         isActive ? Token.Foreground.strong : Token.Foreground.subtle
                     )
-                if count > 0 {
-                    Text("\(count)")
-                        .font(metrics.badgeFont)
+                if showsName {
+                    Text(label(for: target))
+                        .font(metrics.brandFont)
+                        .lineLimit(1)
                         .foregroundStyle(
-                            isActive ? theme.accent : Token.Foreground.faint
+                            isActive ? Token.Foreground.strong : Token.Foreground.subtle
                         )
+                }
+                if showsCount {
+                    Text("\(count(for: target))")
+                        .font(metrics.badgeFont)
+                        .foregroundStyle(isActive ? theme.accent : Token.Foreground.faint)
                 }
             }
             .padding(.horizontal, 7 * metrics.scale)
@@ -351,6 +426,7 @@ private struct TabBar: View {
         .buttonStyle(.plain)
     }
 }
+
 
 // MARK: - Footer
 
@@ -406,10 +482,9 @@ private struct FooterBar: View {
             HStack(spacing: 8 * metrics.scale) {
                 KeyHint(
                     keys: ["←", "→"],
-                    label: item == .tabs
-                        ? (model.selection.tab == .clipboard
-                            ? strings.promptsTab : strings.clipboardTab)
-                        : strings.hintMove
+                    // With more than two tabs there is no single "other" one
+                    // to name, so the arrows explain themselves.
+                    label: strings.hintMove
                 )
                 KeyHint(keys: ["⏎"], label: strings.topBarLabel(item))
                 Spacer(minLength: 0)
@@ -443,7 +518,7 @@ private struct FooterBar: View {
     @ViewBuilder
     private func reel(labels: LabelDensity) -> some View {
         let tabKey = model.settings.tabSwitchKey.displayString
-        let isClipboard = model.selection.tab == .clipboard
+        let isClipboard = model.currentCollectionID == nil
 
         HStack(spacing: (labels == .full ? 8 : 6) * metrics.scale) {
             KeyHint(keys: ["↑", "↓"], label: labels == .full ? strings.hintMove : "")
@@ -462,7 +537,10 @@ private struct FooterBar: View {
 
             // Always present: the tab key is rebindable, so it is the one hint a
             // user cannot fall back on convention for.
-            KeyHint(keys: [tabKey], label: isClipboard ? strings.promptsTab : strings.clipboardTab)
+            // Always present: the switch key is rebindable, so it is the one
+            // hint a user cannot fall back on convention for. The label is gone
+            // because with N tabs there is no single "other tab" to name.
+            KeyHint(keys: [tabKey], label: "")
 
             Spacer(minLength: 0)
 

@@ -29,12 +29,19 @@ public actor LocalStore {
     let cipher: FieldCipher
     let locations: StorageLocations
 
-    public init(locations: StorageLocations, key: SymmetricKey) throws {
+    public init(
+        locations: StorageLocations,
+        key: SymmetricKey,
+        seedNames: Schema.SeedNames = .fallback
+    ) throws {
         try locations.createDirectories()
         self.locations = locations
         self.database = try Database(path: locations.databaseURL.path)
         self.cipher = FieldCipher(key: key)
-        try Schema.migrate(database)
+        // The migration seals the collection names it writes, so it needs the
+        // cipher. The default seed names keep the recovery tool and every
+        // existing test compiling unchanged.
+        try Schema.migrate(database, cipher: cipher, seedNames: seedNames)
     }
 
     // MARK: - Reading
@@ -269,15 +276,6 @@ public actor LocalStore {
         }
     }
 
-    /// Delete every unpinned clip, returning what was removed so it can be undone.
-    public func clearUnpinned() throws -> [ClipItem] {
-        let doomed = try database.query(
-            "SELECT \(Self.selectColumns) FROM clip WHERE is_pinned = 0"
-        ) { try decodeClip($0) }
-        for item in doomed { try removeBlob(for: item.id) }
-        try database.execute("DELETE FROM clip WHERE is_pinned = 0")
-        return doomed
-    }
 
     // MARK: - Internals
 

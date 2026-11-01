@@ -40,6 +40,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Identifiable {
     case moveToFirst
     case moveToLast
     case switchTab
+    case switchTabBackward
     case focusTabs
     case dismiss
 
@@ -61,7 +62,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Identifiable {
     case clearQuery
 
     // Prompts
-    case newPrompt
+    case newItem
     case openSettings
     case editPrompt
     case savePromptEditor
@@ -79,12 +80,12 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Identifiable {
         switch self {
         case .summon, .menuBar: .global
         case .moveUp, .moveDown, .moveToFirst, .moveToLast,
-             .switchTab, .focusTabs, .dismiss: .navigate
+             .switchTab, .switchTabBackward, .focusTabs, .dismiss: .navigate
         case .confirm, .toggleExpand, .togglePin, .deleteItem, .promoteToPrompt, .undo,
              .focusRowActions, .activateRowAction: .act
         case .beginSearch, .typeToFind, .lettersAreTextWhileSearching,
              .deleteQueryCharacter, .clearQuery: .search
-        case .newPrompt, .editPrompt, .savePromptEditor, .cancelPromptEditor: .prompts
+        case .newItem, .editPrompt, .savePromptEditor, .cancelPromptEditor: .prompts
         case .openSettings: .global
         case .clickSelect, .doubleClickConfirm, .dragPanel, .rowButtons: .mouse
         }
@@ -139,7 +140,15 @@ public enum ShortcutReference {
     /// - Parameters:
     ///   - summon: `Settings.hotkey.displayString`.
     ///   - tabSwitch: `Settings.tabSwitchKey.displayString`.
-    public static func sections(summon: String, tabSwitch: String) -> [ShortcutSection] {
+    ///   - tabSwitchBackward: `Settings.tabSwitchKey.reversed?.displayString`.
+    ///     `nil` when the user's binding already carries `⇧`, in which case the
+    ///     row is simply not drawn — a reference printing a key that does
+    ///     nothing is worse than one that stays quiet.
+    public static func sections(
+        summon: String,
+        tabSwitch: String,
+        tabSwitchBackward: String? = nil
+    ) -> [ShortcutSection] {
         [
             ShortcutSection(group: .global, entries: [
                 ShortcutEntry(.summon, keys: [summon]),
@@ -152,6 +161,9 @@ public enum ShortcutReference {
                 ShortcutEntry(.moveToFirst, keys: ["⌘↑"]),
                 ShortcutEntry(.moveToLast, keys: ["⌘↓"]),
                 ShortcutEntry(.switchTab, keys: [tabSwitch]),
+            ]
+            + (tabSwitchBackward.map { [ShortcutEntry(.switchTabBackward, keys: [$0])] } ?? [])
+            + [
                 ShortcutEntry(.focusTabs, keys: ["↑"]),
                 ShortcutEntry(.dismiss, keys: ["⎋"]),
             ]),
@@ -173,7 +185,7 @@ public enum ShortcutReference {
                 ShortcutEntry(.clearQuery, keys: ["⎋"]),
             ]),
             ShortcutSection(group: .prompts, entries: [
-                ShortcutEntry(.newPrompt, keys: ["n"]),
+                ShortcutEntry(.newItem, keys: ["n"]),
                 ShortcutEntry(.editPrompt, symbol: "pencil"),
                 ShortcutEntry(.savePromptEditor, keys: ["⌘", "⏎"]),
                 ShortcutEntry(.cancelPromptEditor, keys: ["⎋"]),
@@ -190,7 +202,10 @@ public enum ShortcutReference {
     /// Every action the reference actually lists. Used by the tests that keep
     /// this file honest.
     public static var documentedActions: Set<ShortcutAction> {
-        Set(sections(summon: "⌘⇧V", tabSwitch: "⇥").flatMap(\.entries).map(\.action))
+        Set(
+            sections(summon: "⌘⇧V", tabSwitch: "⇥", tabSwitchBackward: "⇧⇥")
+                .flatMap(\.entries).map(\.action)
+        )
     }
 }
 
@@ -211,14 +226,14 @@ extension KeyCommand {
         case .beginSearch: .beginSearch
         case .appendToQuery: .typeToFind
         case .deleteQueryCharacter: .deleteQueryCharacter
-        case .clearQuery: .clearQuery
         case .switchTab: .switchTab
+        case .switchTabBackward: .switchTabBackward
         case .confirm: .confirm
         case .deleteItem: .deleteItem
         case .togglePin: .togglePin
         case .toggleExpand: .toggleExpand
         case .undo: .undo
-        case .newPrompt: .newPrompt
+        case .newItem: .newItem
         case .promoteToPrompt: .promoteToPrompt
         case .editPrompt: .editPrompt
         case .moveLeft, .moveRight: .focusRowActions

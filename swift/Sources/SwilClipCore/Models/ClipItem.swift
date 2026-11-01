@@ -84,9 +84,6 @@ public struct ClipItem: Sendable, Identifiable, Equatable {
         return "\(pixelWidth)×\(pixelHeight) \(format)"
     }
 
-    /// The text a paste should place on the pasteboard. `nil` for images, whose
-    /// bytes must be read from the sidecar file instead.
-    public var pasteableText: String? { kind == .text ? text : nil }
 
     /// The buttons this row draws, in render order.
     ///

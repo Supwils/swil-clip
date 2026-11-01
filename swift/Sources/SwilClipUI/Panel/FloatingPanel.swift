@@ -12,6 +12,17 @@ import SwiftUI
 ///    the user was in, which is the foundation of focus restoration;
 /// 3. it needs its own size, corner radius and `NSVisualEffectView` backing.
 final class FloatingPanel: NSPanel {
+    /// A summon belongs to the Space that is active when it is ordered in.
+    ///
+    /// `stationary` describes desktop-like windows and `canJoinAllSpaces`
+    /// duplicates one window across Spaces. Neither expresses this panel's
+    /// lifecycle: it is hidden between summons and must be reassociated with
+    /// whichever Space is active on the next order-front. It remains eligible
+    /// to appear alongside full-screen windows.
+    static let summonCollectionBehavior: NSWindow.CollectionBehavior = [
+        .moveToActiveSpace, .transient, .fullScreenAuxiliary,
+    ]
+
     init(contentRect: NSRect) {
         super.init(
             contentRect: contentRect,
@@ -25,10 +36,7 @@ final class FloatingPanel: NSPanel {
         isFloatingPanel = true
         // Above normal windows but below the menu bar, matching Spotlight.
         level = .popUpMenu
-        // Show on every Space and over full-screen apps: a clipboard is needed
-        // wherever the user happens to be, and following them across Spaces is
-        // less surprising than vanishing.
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        collectionBehavior = Self.summonCollectionBehavior
 
         isOpaque = false
         backgroundColor = .clear

@@ -2,7 +2,7 @@
 import PackageDescription
 
 // SwilClip v2 — deliberately dependency-free. See
-// docs/superpowers/specs/2026-08-20-swift-rewrite-prompt-library-design.md §4.2.
+// docs/design-v2.md §4.2.
 //
 // SwilClipCore links no AppKit, so the entire test suite runs headless. The app
 // target holds only what genuinely needs a window server.
@@ -13,15 +13,25 @@ let package = Package(
         .executable(name: "SwilClip", targets: ["SwilClip"]),
         .executable(name: "swilclip-recover", targets: ["SwilClipRecover"]),
         .library(name: "SwilClipCore", targets: ["SwilClipCore"]),
+        .library(name: "SwilClipUI", targets: ["SwilClipUI"]),
     ],
     targets: [
         .target(
             name: "SwilClipCore",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        // The shell as a library, so a test target can reach it. SPM cannot
+        // reliably `@testable import` an executable, which is why the larger
+        // half of this codebase had no tests and shipped four wiring bugs.
+        .target(
+            name: "SwilClipUI",
+            dependencies: ["SwilClipCore"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // main.swift only.
         .executableTarget(
             name: "SwilClip",
-            dependencies: ["SwilClipCore"],
+            dependencies: ["SwilClipUI"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         // Rescue utility. The v1 history file is never written or deleted, which
@@ -34,6 +44,11 @@ let package = Package(
         .testTarget(
             name: "SwilClipCoreTests",
             dependencies: ["SwilClipCore"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "SwilClipUITests",
+            dependencies: ["SwilClipUI"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]

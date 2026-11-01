@@ -17,14 +17,17 @@ public enum KeyCommand: Equatable, Sendable {
     case beginSearch
     case appendToQuery(String)
     case deleteQueryCharacter
-    case clearQuery
     case switchTab
+    /// `⇧` plus the switch binding. A separate case rather than a payload on
+    /// ``switchTab``, so the existing `.switchTab` literals in the regression
+    /// suite keep compiling and ``documentedAction`` stays flat.
+    case switchTabBackward
     case confirm
     case deleteItem
     case togglePin
     case toggleExpand
     case undo
-    case newPrompt
+    case newItem
     case promoteToPrompt
     /// Open the editor for the selected prompt. Reachable only through a
     /// focused pencil button — there is no letter for it, because `e` was
@@ -44,7 +47,7 @@ public enum SelectionEffect: Equatable, Sendable {
     case togglePin(id: String)
     case toggleExpand(id: String)
     case undo
-    case newPrompt
+    case newItem
     case promote(id: String)
     case edit(id: String)
     /// Open the preferences sheet. Reachable from the gear in the top bar,
@@ -54,9 +57,36 @@ public enum SelectionEffect: Equatable, Sendable {
     case dismiss
 }
 
-public enum PanelTab: String, Sendable, CaseIterable, Equatable {
+/// Which list the panel is showing.
+///
+/// ## Why this stays an enum
+///
+/// Flattening it to a bare id would make Clipboard just another string, and
+/// Clipboard genuinely is not: it lives in another table, the pasteboard poller
+/// writes it, it evicts, and it is read-only. That is the one special case worth
+/// having in the type system — and putting it there is what lets
+/// ``topBarItems`` stop asking *which tab is this* and start asking *what kind
+/// of tab is this*.
+///
+/// The consequence is that this is no longer `CaseIterable`: the set of tabs is
+/// runtime data. So ``SelectionReducer`` is *told* it, exactly as it is already
+/// told `visibleIDs` and `actions`.
+public enum PanelTab: Hashable, Sendable {
     case clipboard
-    case prompts
+    case collection(String)
+
+    /// Stable string form, for `UserDefaults` keys and undo entries.
+    public var storageKey: String {
+        switch self {
+        case .clipboard: "clipboard"
+        case .collection(let id): "collection:\(id)"
+        }
+    }
+
+    public var collectionID: String? {
+        if case .collection(let id) = self { return id }
+        return nil
+    }
 }
 
 /// The one and only place a selection lives.
@@ -124,11 +154,18 @@ public enum SelectionReducer {
     /// this list too (see ``RowAction``), so neither side has to count. Left
     /// empty, `←`/`→` simply do nothing on a row — the feature degrades off
     /// rather than pointing somewhere wrong.
+    /// - Parameter tabs: the tabs the bar is *currently drawing*, in order.
+    ///   The third member of the promise `visibleIDs` and `actions` already
+    ///   make: this function never assumes what is on screen, it is told. The
+    ///   default of a lone clipboard is what keeps every pre-existing call site
+    ///   compiling, and it degrades the feature *off* rather than pointing it
+    ///   somewhere wrong.
     public static func reduce(
         _ state: State,
         _ command: KeyCommand,
         visibleIDs: [String],
-        actions: [RowAction] = []
+        actions: [RowAction] = [],
+        tabs: [PanelTab] = [.clipboard]
     ) -> Outcome {
         var next = state
 
@@ -180,10 +217,10 @@ public enum SelectionReducer {
             return Outcome(state: next)
 
         case .moveLeft:
-            return step(next, -1, visibleIDs: visibleIDs, actions: actions)
+            return step(next, -1, visibleIDs: visibleIDs, actions: actions, tabs: tabs)
 
         case .moveRight:
-            return step(next, +1, visibleIDs: visibleIDs, actions: actions)
+            return step(next, +1, visibleIDs: visibleIDs, actions: actions, tabs: tabs)
 
         case .beginSearch:
             next.isSearching = true
@@ -204,22 +241,11 @@ public enum SelectionReducer {
             next.query.removeLast()
             return Outcome(state: next)
 
-        case .clearQuery:
-            next.query = ""
-            next.isSearching = false
-            return Outcome(state: next)
-
         case .switchTab:
-            next.tab = state.tab == .clipboard ? .prompts : .clipboard
-            // The other tab's rows carry different buttons — a prompt has a
-            // pencil where a clip has "save as prompt".
-            if case .row = state.focus { next.focus = .list }
-            // And its bar has different stops: `+` only exists on Prompts.
-            if let item = state.focus.topBarItem, !next.tab.topBarItems.contains(item) {
-                next.focus = .tabs
-            }
-            // Each tab owns its own selection and query; the host restores them.
-            return Outcome(state: next, effect: .switchTab)
+            return cycleTab(next, offset: +1, tabs: tabs)
+
+        case .switchTabBackward:
+            return cycleTab(next, offset: -1, tabs: tabs)
 
         case .confirm:
             if let item = state.focus.topBarItem {
@@ -230,8 +256,8 @@ public enum SelectionReducer {
                     next.focus = .list
                     if next.selectedID == nil { next.selectedID = visibleIDs.first }
                     return Outcome(state: next)
-                case .newPrompt:
-                    return Outcome(state: next, effect: .newPrompt)
+                case .newItem:
+                    return Outcome(state: next, effect: .newItem)
                 case .settings:
                     return Outcome(state: next, effect: .openSettings)
                 }
@@ -241,7 +267,10 @@ public enum SelectionReducer {
                 // a second way. Recursing is what guarantees `⏎` on the trash
                 // icon and `d` cannot drift apart, including the part where the
                 // successor is chosen before the row goes away.
-                return reduce(state, action.command, visibleIDs: visibleIDs, actions: actions)
+                return reduce(
+                    state, action.command,
+                    visibleIDs: visibleIDs, actions: actions, tabs: tabs
+                )
             }
             guard let id = state.selectedID, visibleIDs.contains(id) else {
                 return Outcome(state: next)
@@ -280,8 +309,8 @@ public enum SelectionReducer {
         case .undo:
             return Outcome(state: next, effect: .undo)
 
-        case .newPrompt:
-            return Outcome(state: next, effect: .newPrompt)
+        case .newItem:
+            return Outcome(state: next, effect: .newItem)
 
         case .promoteToPrompt:
             guard let id = state.selectedID, visibleIDs.contains(id) else {
@@ -333,18 +362,22 @@ public enum SelectionReducer {
     /// lights Prompts; only a second `→` steps on to `+`. That keeps the
     /// commonest gesture — flipping between the two lists — a single key, and
     /// it means you cannot land on `+` while looking at the clipboard.
-    private static func stepTopBar(_ state: State, _ offset: Int, from item: TopBarItem)
-        -> Outcome
-    {
+    private static func stepTopBar(
+        _ state: State, _ offset: Int, from item: TopBarItem, tabs: [PanelTab]
+    ) -> Outcome {
         var next = state
         let stops = state.tab.topBarItems
 
-        if item == .tabs {
-            let target: PanelTab = offset > 0 ? .prompts : .clipboard
-            if target != state.tab {
-                next.tab = target
+        if item == .tabs, let index = tabs.firstIndex(of: state.tab) {
+            let target = index + offset
+            if tabs.indices.contains(target) {
+                next.tab = tabs[target]
                 return Outcome(state: next, effect: .switchTab)
             }
+            // Ran off the end of the tab group; fall through to the bar's other
+            // stops. Deliberately *not* wrapping even though `⇥` does: these
+            // arrows have somewhere else to go, and wrapping from the last tab
+            // back to the first would make `＋` and `⚙` unreachable by arrow.
         }
 
         guard let index = stops.firstIndex(of: item) else {
@@ -379,18 +412,78 @@ public enum SelectionReducer {
     /// switch, because the other tab's rows carry different buttons.
     ///
     /// - Returns: the state to file under `previousTab`, and the state to adopt.
+    /// - Parameter targetTab: where the panel is going. This used to be derived
+    ///   by negating a two-case enum; with an open list it has to be said.
     public static func swapTab(
         current: State,
         incoming: State,
-        from previousTab: PanelTab
+        from previousTab: PanelTab,
+        to targetTab: PanelTab
     ) -> (outgoing: State, adopted: State) {
         var outgoing = current
         outgoing.tab = previousTab
 
         var adopted = incoming
-        adopted.tab = previousTab == .clipboard ? .prompts : .clipboard
+        adopted.tab = targetTab
         adopted.focus = current.focus
         return (outgoing, adopted)
+    }
+
+    /// Re-anchor the *tab* against the tabs that actually exist.
+    ///
+    /// Deleting a collection deletes a tab, so this is ``reconcile(_:with:actions:)``
+    /// one dimension up: a `tab` pointing at a collection that is gone is the
+    /// state from which "acted on the wrong list" is one keystroke away.
+    ///
+    /// List-scoped fields are cleared because they described the dead tab. The
+    /// host may overlay the destination tab's parked state afterwards; this
+    /// function has no parking of its own, so it leaves a clean slate rather
+    /// than a stale one.
+    public static func reconcileTab(_ state: State, with tabs: [PanelTab]) -> State {
+        var next = state
+        guard !tabs.contains(state.tab) else {
+            if let item = next.focus.topBarItem, !next.tab.topBarItems.contains(item) {
+                next.focus = .tabs
+            }
+            return next
+        }
+        next.tab = tabs.first ?? .clipboard
+        // Only the band survives, and only as the band. Ejecting someone out of
+        // the top bar because a background change removed a tab is the SW-06
+        // failure wearing a different hat.
+        next.focus = next.focus.isOnTopBar ? .tabs : .list
+        next.selectedID = nil
+        next.expandedID = nil
+        next.query = ""
+        next.isSearching = false
+        return next
+    }
+
+    /// `⇥` / `⇧⇥`: step through the tab ring.
+    ///
+    /// **Wrapping, unlike the list.** ``neighbour(of:in:offset:)`` refuses to
+    /// wrap because a history list is unbounded and both of its ends are
+    /// off-screen. A tab bar is at most six stops and every one of them is
+    /// drawn. Wrapping is safe exactly when the boundary is visible.
+    ///
+    /// A one-tab panel emits **no effect**: the host treats `.switchTab` as a
+    /// state handover, and handing a tab's state over to itself would park and
+    /// re-adopt the same value for nothing.
+    private static func cycleTab(_ state: State, offset: Int, tabs: [PanelTab]) -> Outcome {
+        var next = state
+        guard tabs.count > 1, let index = tabs.firstIndex(of: state.tab) else {
+            return Outcome(state: next)
+        }
+        next.tab = tabs[(index + offset + tabs.count) % tabs.count]
+        // The other tab's rows carry different buttons — a library entry has a
+        // pencil where a clip has "save as prompt".
+        if case .row = state.focus { next.focus = .list }
+        // And its bar may have different stops: `＋` exists only on collections.
+        if let item = state.focus.topBarItem, !next.tab.topBarItems.contains(item) {
+            next.focus = .tabs
+        }
+        // Each tab owns its own selection and query; the host restores them.
+        return Outcome(state: next, effect: .switchTab)
     }
 
     // MARK: - Reconciliation
@@ -462,12 +555,13 @@ public enum SelectionReducer {
         _ state: State,
         _ offset: Int,
         visibleIDs: [String],
-        actions: [RowAction]
+        actions: [RowAction],
+        tabs: [PanelTab]
     ) -> Outcome {
         var next = state
 
         if let item = state.focus.topBarItem {
-            return stepTopBar(next, offset, from: item)
+            return stepTopBar(next, offset, from: item, tabs: tabs)
         }
 
         guard let selected = state.selectedID, visibleIDs.contains(selected), !actions.isEmpty

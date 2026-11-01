@@ -42,21 +42,30 @@ public struct Strings: Sendable, Equatable {
     // MARK: - Panel chrome
 
     public var clipboardTab: String { pick("Clipboard", "剪贴板") }
+    /// Also the name the v3 migration seeds the first collection with.
     public var promptsTab: String { pick("Prompts", "提示词") }
+    /// Ditto, for the second. From here on both are ordinary user data — see
+    /// ``LibraryCollection``.
+    public var personalTab: String { pick("Personal", "个人") }
     public var settingsTooltip: String { pick("Settings", "设置") }
-    public var newPromptTooltip: String { pick("New prompt (n)", "新建提示词 (n)") }
+    public var newItemTooltip: String { pick("New entry (n)", "新建条目 (n)") }
     /// Compact verb for the footer while a top-bar stop is focused.
     public func topBarLabel(_ item: TopBarItem) -> String {
         switch item {
         case .tabs: pick("open", "进入")
-        case .newPrompt: pick("new", "新建")
+        case .newItem: pick("new", "新建")
         case .settings: pick("settings", "设置")
         }
     }
     public var searchHistoryPlaceholder: String { pick("Search history", "搜索历史") }
-    public var searchPromptsPlaceholder: String { pick("Search prompts", "搜索提示词") }
+    public func searchCollectionPlaceholder(_ name: String) -> String {
+        pick("Search \(name)", "搜索\(name)")
+    }
     public var dividerRecent: String { pick("Recent", "最近") }
-    public var dividerLibrary: String { pick("Library", "提示词库") }
+    public var dividerSaved: String { pick("Saved", "已保存") }
+    /// Stands in for a collection whose sealed name will not open. Never
+    /// blank — a nameless tab reads as "the app lost something".
+    public var collectionUnreadable: String { pick("—", "—") }
     public var dismiss: String { pick("Dismiss", "关闭") }
 
     // MARK: - Empty states
@@ -69,8 +78,8 @@ public struct Strings: Sendable, Equatable {
     public var emptyClipsHint: String {
         pick("Copy something and it will appear here.", "随便复制点什么，它就会出现在这里。")
     }
-    public var emptyPromptsTitle: String { pick("No prompts yet", "还没有提示词") }
-    public var emptyPromptsHint: String {
+    public var emptyCollectionTitle: String { pick("Nothing saved here yet", "这里还没有内容") }
+    public var emptyCollectionHint: String {
         pick(
             "Press n to write one, or ⇧S on a clipboard entry to save it here.",
             "按 n 新建一条，或在剪贴板条目上按 ⇧S 存进来。"
@@ -114,8 +123,6 @@ public struct Strings: Sendable, Equatable {
         }
     }
     public var hintBack: String { pick("back", "返回") }
-    public var hintOpen: String { pick("open", "进入") }
-    public var hintSwitch: String { pick("switch", "切换") }
 
     /// Shown in place of a preview whose ciphertext would not open.
     public var unreadableRow: String {
@@ -130,23 +137,60 @@ public struct Strings: Sendable, Equatable {
 
     // MARK: - Prompt editor
 
-    public var newPromptTitle: String { pick("New prompt", "新建提示词") }
-    public var editPromptTitle: String { pick("Edit prompt", "编辑提示词") }
+    public var newItemTitle: String { pick("New entry", "新建条目") }
+    public var editItemTitle: String { pick("Edit entry", "编辑条目") }
     public var fieldTitle: String { pick("Title", "标题") }
-    public var fieldBody: String { pick("Prompt", "正文") }
+    public var fieldBody: String { pick("Body", "正文") }
+    public var fieldCollection: String { pick("Collection", "集合") }
     public var titlePlaceholder: String { pick("Named from the first line", "默认取正文第一行") }
     public var cancel: String { pick("Cancel", "取消") }
     public var save: String { pick("Save", "保存") }
     public var done: String { pick("Done", "完成") }
     public var quit: String { pick("Quit", "退出") }
 
+    // MARK: - Collections (Settings)
+
+    public var collectionsPane: String { pick("Collections", "集合") }
+    public var collectionsSection: String { pick("Collections", "集合") }
+    public var collectionsHint: String {
+        pick(
+            "Tabs in the panel, left to right. ⇧S saves into the first one.",
+            "面板顶栏从左到右的标签页。⇧S 会存进第一个。"
+        )
+    }
+    public var newCollectionTooltip: String { pick("New collection", "新建集合") }
+    public var collectionNamePlaceholder: String { pick("Name", "名称") }
+    public func collectionCapHint(_ maximum: Int) -> String {
+        pick("At most \(maximum) collections.", "最多 \(maximum) 个集合。")
+    }
+    public func deleteCollectionTitle(_ name: String) -> String {
+        pick("Delete “\(name)”?", "删除「\(name)」？")
+    }
+    public func deleteCollectionBody(count: Int) -> String {
+        pick(
+            "It holds \(count) entries. Undo is available from the panel with u.",
+            "它里面有 \(count) 条内容。撤销请回到面板按 u。"
+        )
+    }
+    public func moveEntriesButton(to destination: String, count: Int) -> String {
+        pick("Move \(count) to \(destination)", "把 \(count) 条移到\(destination)")
+    }
+    public func deleteCollectionButton(count: Int) -> String {
+        pick("Delete it and \(count) entries", "连同 \(count) 条内容一起删除")
+    }
+
     // MARK: - Status line
 
     public var statusOnlyTextPromotes: String {
         pick("Only text can become a prompt", "只有文本能存为提示词")
     }
-    public func statusSavedAsPrompt(_ title: String) -> String {
-        pick("Saved as prompt · \(title)", "已存为提示词 · \(title)")
+    /// Never silent about the destination: `⇧S` aims at the first collection in
+    /// tab order, and the footer is where that rule is read back.
+    public func statusSavedTo(_ collection: String) -> String {
+        pick("Saved to \(collection)", "已存入\(collection)")
+    }
+    public var statusNoCollections: String {
+        pick("No collections — add one in Settings.", "还没有集合，请到设置里新建一个。")
     }
     public var statusPinRestored: String { pick("Pin restored", "已恢复置顶") }
     public var statusUnpinnedAgain: String { pick("Unpinned again", "已重新取消置顶") }
@@ -169,11 +213,11 @@ public struct Strings: Sendable, Equatable {
     public func errorPromote(_ detail: String) -> String {
         pick("Could not save as prompt: \(detail)", "存为提示词失败：\(detail)")
     }
-    public func errorClear(_ detail: String) -> String {
-        pick("Could not clear: \(detail)", "清空失败：\(detail)")
-    }
     public func errorUndo(_ detail: String) -> String {
         pick("Could not undo: \(detail)", "撤销失败：\(detail)")
+    }
+    public func errorDeleteCollection(_ detail: String) -> String {
+        pick("Could not delete the collection: \(detail)", "删除集合失败：\(detail)")
     }
     public func errorSavePrompt(_ detail: String) -> String {
         pick("Could not save prompt: \(detail)", "保存提示词失败：\(detail)")
@@ -269,7 +313,6 @@ public struct Strings: Sendable, Equatable {
                 + "所以你挑任何色相它都还是重点色，不会变成装饰。"
         )
     }
-    public var accentCustomHue: String { pick("Custom hue", "自定义色相") }
 
     public var panelTintSection: String { pick("Panel opacity", "面板通透度") }
     public var panelTintHint: String {
@@ -404,7 +447,9 @@ public struct Strings: Sendable, Equatable {
         case .moveToLast:
             return pick("Jump to the last row", "跳到最后一行")
         case .switchTab:
-            return pick("Switch between Clipboard and Prompts", "在剪贴板和提示词之间切换")
+            return pick("Next tab, wrapping around", "切到下一个标签页，到头回到开头")
+        case .switchTabBackward:
+            return pick("Previous tab, wrapping around", "切到上一个标签页，到头回到末尾")
         case .focusTabs:
             return pick(
                 "From the first row, reach the bar — then ← → along it",
@@ -464,7 +509,7 @@ public struct Strings: Sendable, Equatable {
                 "退出搜索并清空关键词"
             )
 
-        case .newPrompt:
+        case .newItem:
             return pick(
                 "Write a new prompt — or arrow to + in the bar above",
                 "新建一条提示词——也可以用方向键走到上面那个 + 上"

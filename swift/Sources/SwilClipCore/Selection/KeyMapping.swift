@@ -27,8 +27,6 @@ public enum KeyCode {
     public static let tab: UInt16 = 48
     public static let delete: UInt16 = 51
     public static let space: UInt16 = 49
-    public static let leftBracket: UInt16 = 33
-    public static let rightBracket: UInt16 = 30
 
     /// Printable label for a key code, for the settings UI.
     static func symbol(for code: UInt16) -> String {
@@ -44,8 +42,6 @@ public enum KeyCode {
         case tab: "⇥"
         case delete: "⌫"
         case space: "␣"
-        case leftBracket: "["
-        case rightBracket: "]"
         default: letters[code] ?? "key \(code)"
         }
     }
@@ -80,6 +76,18 @@ public struct KeyBinding: Equatable, Sendable, Codable {
 
     public func matches(keyCode: UInt16, modifiers: KeyModifiers) -> Bool {
         self.keyCode == keyCode && self.modifiers == modifiers
+    }
+
+    /// The same binding plus `⇧`, meaning "the other direction" — or `nil` when
+    /// this binding already carries `⇧` and there is no room for one.
+    ///
+    /// Returning `nil` rather than inventing a different chord is the honest
+    /// answer: `←`/`→` on the tab band reaches every tab regardless, and a
+    /// settings screen printing a keycap that does nothing is the failure
+    /// `hotkeyIsRegistered` exists to prevent, one key over.
+    public var reversed: KeyBinding? {
+        guard !modifiers.contains(.shift) else { return nil }
+        return KeyBinding(keyCode: keyCode, modifiers: modifiers.union(.shift))
     }
 
     /// Human-readable form for the settings UI.
@@ -125,6 +133,14 @@ public enum KeyMapping {
         // The rebindable binding is checked first, so a user who maps it onto a
         // key this function would otherwise claim still gets tab switching.
         if tabSwitch.matches(keyCode: keyCode, modifiers: modifiers) { return .switchTab }
+        // Checked here for the same reason as the forward binding: before the
+        // control/option guard and before search mode, so a user who maps
+        // switching onto a key this function would otherwise claim still gets
+        // both directions.
+        if let reverse = tabSwitch.reversed,
+           reverse.matches(keyCode: keyCode, modifiers: modifiers) {
+            return .switchTabBackward
+        }
 
         // Control or Option means the combination belongs to the system or
         // another app. Swallowing those makes a panel feel like it eats input.
@@ -161,7 +177,7 @@ public enum KeyMapping {
         case "p": return .togglePin
         case "e": return .toggleExpand
         case "u": return .undo
-        case "n": return .newPrompt
+        case "n": return .newItem
         case "/": return .beginSearch
         default:
             // Type-to-find: any other printable key opens search with that

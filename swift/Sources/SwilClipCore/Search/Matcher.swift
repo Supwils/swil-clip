@@ -31,9 +31,9 @@ public enum Matcher {
         return clips.filter { matches(query: query, in: [$0.text, $0.preview, $0.sourceApp]) }
     }
 
-    public static func filter(_ prompts: [PromptItem], query: String) -> [PromptItem] {
-        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return prompts }
-        return prompts.filter { matches(query: query, in: [$0.title, $0.body]) }
+    public static func filter(_ entries: [LibraryEntry], query: String) -> [LibraryEntry] {
+        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return entries }
+        return entries.filter { matches(query: query, in: [$0.title, $0.body]) }
     }
 
     /// Ranges of `query` within `haystack`, for highlighting matched runs in a

@@ -268,4 +268,32 @@ struct PanelPlacementTests {
             )
         )
     }
+
+    @Test("a saved position on another display cannot capture the summon")
+    func ignoresSavedPositionOnAnotherDisplay() {
+        let rightScreen = CGRect(x: 1440, y: 0, width: 1920, height: 1055)
+        let cursor = CGPoint(x: 1800, y: 800)
+        let origin = PanelPlacement.origin(
+            forCursor: cursor,
+            panelSize: panel,
+            visibleFrame: rightScreen,
+            savedOrigin: CGPoint(x: 100, y: 100)
+        )
+
+        #expect(rightScreen.contains(CGRect(origin: origin, size: panel)))
+        #expect(origin.x == cursor.x + PanelPlacement.cursorInset)
+    }
+
+    @Test("a saved position is retained on the current display")
+    func retainsSavedPositionOnCurrentDisplay() {
+        let saved = CGPoint(x: 100, y: 100)
+        let origin = PanelPlacement.origin(
+            forCursor: CGPoint(x: 900, y: 700),
+            panelSize: panel,
+            visibleFrame: screen,
+            savedOrigin: saved
+        )
+
+        #expect(origin == saved)
+    }
 }
