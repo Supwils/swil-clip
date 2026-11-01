@@ -48,6 +48,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Identifiable {
     case confirm
     case toggleExpand
     case editInline
+    case scrollExpansion
     case togglePin
     case deleteItem
     case promoteToPrompt
@@ -82,8 +83,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Identifiable {
         case .summon, .menuBar: .global
         case .moveUp, .moveDown, .moveToFirst, .moveToLast,
              .switchTab, .switchTabBackward, .focusTabs, .dismiss: .navigate
-        case .confirm, .toggleExpand, .editInline, .togglePin, .deleteItem,
-             .promoteToPrompt, .undo, .focusRowActions, .activateRowAction: .act
+        case .confirm, .toggleExpand, .editInline, .scrollExpansion, .togglePin,
+             .deleteItem, .promoteToPrompt, .undo, .focusRowActions, .activateRowAction: .act
         case .beginSearch, .typeToFind, .lettersAreTextWhileSearching,
              .deleteQueryCharacter, .clearQuery: .search
         case .newItem, .editPrompt, .savePromptEditor, .cancelPromptEditor: .prompts
@@ -172,6 +173,7 @@ public enum ShortcutReference {
                 ShortcutEntry(.confirm, keys: ["⏎"]),
                 ShortcutEntry(.toggleExpand, keys: ["e"]),
                 ShortcutEntry(.editInline, keys: ["⇧", "E"]),
+                ShortcutEntry(.scrollExpansion, keys: ["⇧↑", "⇧↓"]),
                 ShortcutEntry(.togglePin, keys: ["p"]),
                 ShortcutEntry(.deleteItem, keys: ["d"]),
                 ShortcutEntry(.promoteToPrompt, keys: ["⇧", "S"]),
@@ -239,6 +241,7 @@ extension KeyCommand {
         case .promoteToPrompt: .promoteToPrompt
         case .editPrompt: .editPrompt
         case .editInline: .editInline
+        case .scrollExpansion: .scrollExpansion
         case .moveLeft, .moveRight: .focusRowActions
         case .dismiss: .dismiss
         case .selectID: .clickSelect

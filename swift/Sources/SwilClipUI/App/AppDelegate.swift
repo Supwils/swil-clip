@@ -29,9 +29,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // Before any window exists, so the first paint is already correct —
         // a panel that flashes dark then turns light is worse than either.
         settings.appearance.apply()
-        settings.onAppearanceChange = { $0.apply() }
-        // Rebinding in Settings has to reach Carbon, or the field lies.
-        settings.onHotkeyChange = { [weak self] _ in self?.registerHotkey() }
+        Wiring.connect(settings: settings) { [weak self] in self?.registerHotkey() }
 
         do {
             let locations = try StorageLocations.standard()

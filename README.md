@@ -58,6 +58,7 @@ Press **⌘⇧V** anywhere. The panel opens at your cursor.
 | `d` / `p` | delete / pin | delete / pin |
 | `e` | expand | preview |
 | `⇧E` | edit the text in place — `⌘⏎` saves, `esc` discards | edit the body in place |
+| `⇧↑` `⇧↓` | scroll an expanded row | same |
 | `u` | undo delete | undo delete |
 | `n` | — | new prompt |
 | `⇧S` | **save as prompt** | — |
@@ -235,6 +236,18 @@ and 32 MB caps — those existed only to make an O(n) write survivable.
 The Keychain read distinguishes "no key yet" from every other failure. A locked
 keychain or a denied prompt raises an error; only `errSecItemNotFound` creates a
 key. Getting that wrong would orphan the entire history behind a fresh key.
+
+## Backups
+
+Once a day at launch — or from Settings → Backups — the app writes a snapshot to
+`~/Library/Application Support/SwilClipSwift/Backups/<UTC timestamp>/` and keeps
+the newest seven. Each is a complete data folder: `swilclip.sqlite` plus
+`blobs/`. Snapshots are sealed with the same Keychain key as the live data, so
+they restore on this Mac (or one with your Keychain), nowhere else.
+
+To restore: quit the app, move the current `swilclip.sqlite*` files and `blobs/`
+out of `SwilClipSwift/`, copy a snapshot's `swilclip.sqlite` and `blobs/` in,
+and relaunch.
 
 ## Migrating from v1
 

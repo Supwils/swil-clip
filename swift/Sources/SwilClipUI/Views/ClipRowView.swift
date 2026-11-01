@@ -22,6 +22,8 @@ struct ClipRowView: View {
     /// non-nil for the selected row.
     let focusedAction: RowAction?
     let edit: InlineEditHooks
+    /// The latest scroll request aimed at this row, if any.
+    let scroll: ExpansionScroll?
 
     let onSelect: () -> Void
     let onConfirm: () -> Void
@@ -196,14 +198,13 @@ struct ClipRowView: View {
             } else if let draft = edit.draft {
                 InlineEditor(text: draft, onSave: edit.save, onCancel: edit.cancel)
             } else if let expandedText {
-                ScrollView {
-                    Text(expandedText)
-                        .font(metrics.expandedFont)
-                        .foregroundStyle(Token.Foreground.primary)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(maxHeight: metrics.expansionMaxHeight)
+                ExpandedText(
+                    text: expandedText,
+                    font: metrics.expandedNSFont,
+                    color: NSColor(Token.Foreground.primary),
+                    maxHeight: metrics.expansionMaxHeight,
+                    scroll: scroll
+                )
             } else {
                 ProgressView()
                     .controlSize(.small)

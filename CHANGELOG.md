@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v2.1.0 — unreleased
 
 ### Collections
 
@@ -40,6 +40,22 @@ user-managed collections, all equal to each other
 - **The draft is modal and durable.** While it is open no key or click can move
   the selection, and closing the panel mid-edit keeps the draft for next time.
 
+### Backups
+
+- **The app backs itself up.** Once a day at launch, and on demand from
+  Settings → Backups: `VACUUM INTO` a consistent snapshot plus the image
+  sidecars, newest seven kept, in `SwilClipSwift/Backups/`. Copying the folder
+  by hand could capture a database that never existed, because WAL keeps the
+  newest writes in a separate file.
+- Snapshots are encrypted exactly like the live data, so they open only on a
+  Mac holding the same Keychain key. Folders you put there yourself are never
+  rotated away.
+
+### Reading long entries
+
+- **`⇧↑` / `⇧↓` scroll an expanded row** three lines at a time. With nothing
+  expanded they are plain arrows, so holding `⇧` never freezes the list.
+
 ### Internal
 
 - **The app shell is testable.** `SwilClipUI` is now a library target and
@@ -48,6 +64,12 @@ user-managed collections, all equal to each other
   AppKit: the frontmost-app lookup is injected.
 - Undo entries are pushed *after* the write succeeds, so a failed delete or pin
   no longer spends the user's `u` on a no-op (roadmap 2.1.3).
+- **The shell's callbacks are a tested manifest** (roadmap 2.1.2). `Wiring`
+  finds every `on…` callback by reflection, so one added without being wired
+  fails `ShellWiringTests` — nobody has to remember to enrol it.
+- Every preference round-trips through a fresh `Settings` (roadmap 2.1.4).
+- Bundles carry the commit they were built from: `CFBundleVersion` is the
+  commit count, and the Settings footer shows the short hash.
 - The `AppModel` test fixture keeps its scratch preferences inside its temp
   directory. A bare suite name left one `swilclip-tests-*.plist` in
   `~/Library/Preferences` per test, written by cfprefsd after teardown.

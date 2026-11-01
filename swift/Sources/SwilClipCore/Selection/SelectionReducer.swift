@@ -37,6 +37,9 @@ public enum KeyCommand: Equatable, Sendable {
     /// shifted twin of `e`, the way `⇧S` is the shifted twin of `s` — so it
     /// costs no letter from type-to-find.
     case editInline
+    /// `⇧↑` / `⇧↓`: scroll the expanded row's contents, in lines. A long prompt
+    /// used to expand past the panel and then be readable only in the editor.
+    case scrollExpansion(lines: Int)
     case dismiss
     /// Mouse click. Assistive only — never emitted by hover.
     case selectID(String)
@@ -57,6 +60,9 @@ public enum SelectionEffect: Equatable, Sendable {
     /// Hand the expanded row to the inline editor. The host decides whether the
     /// row has text to edit; the reducer only knows ids.
     case editInline(id: String)
+    /// Scroll the expanded row by this many lines. Purely visual: the view owns
+    /// the scroll offset, because it is the only one that knows the layout.
+    case scrollExpansion(id: String, lines: Int)
     /// Open the preferences sheet. Reachable from the gear in the top bar,
     /// by mouse or by arrowing onto it.
     case openSettings
@@ -341,6 +347,19 @@ public enum SelectionReducer {
             next.expandedID = id
             next.focus = .list
             return Outcome(state: next, effect: .editInline(id: id))
+
+        case .scrollExpansion(let lines):
+            guard let id = state.selectedID, id == state.expandedID, visibleIDs.contains(id),
+                  !state.focus.isOnTopBar
+            else {
+                // Nothing open to scroll, so the shifted arrow is just an arrow.
+                // Holding ⇧ out of habit must not freeze the list.
+                return reduce(
+                    state, lines < 0 ? .moveUp : .moveDown,
+                    visibleIDs: visibleIDs, actions: actions, tabs: tabs
+                )
+            }
+            return Outcome(state: next, effect: .scrollExpansion(id: id, lines: lines))
 
         case .dismiss:
             if state.focus.focusedAction != nil {

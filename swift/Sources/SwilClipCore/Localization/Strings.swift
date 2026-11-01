@@ -405,6 +405,26 @@ public struct Strings: Sendable, Equatable {
         pick("Needs Accessibility permission to send ⌘V.", "需要「辅助功能」权限才能发送 ⌘V。")
     }
 
+    public var backupSection: String { pick("Backups", "备份") }
+    public var backupHint: String {
+        pick(
+            "A snapshot a day, the newest seven kept. Encrypted like the live data, "
+                + "so it only opens on this Mac.",
+            "每天一份快照，保留最近七份。和原数据一样加密，所以只能在这台 Mac 上打开。"
+        )
+    }
+    public var backupNow: String { pick("Back up now", "立即备份") }
+    public var showInFinder: String { pick("Show in Finder", "在访达中显示") }
+    public func lastBackup(_ date: Date?) -> String {
+        guard let date else { return pick("No backup yet", "还没有备份") }
+        let stamp = date.formatted(date: .abbreviated, time: .shortened)
+        return pick("Last backup: \(stamp)", "上次备份：\(stamp)")
+    }
+    public var statusBackedUp: String { pick("Backed up", "已备份") }
+    public func errorBackup(_ detail: String) -> String {
+        pick("Could not back up: \(detail)", "备份失败：\(detail)")
+    }
+
     public var loginSection: String { pick("Start at login", "开机自启") }
     public var loginHint: String {
         pick(
@@ -483,6 +503,11 @@ public struct Strings: Sendable, Equatable {
             )
         case .toggleExpand:
             return pick("Expand or collapse the full contents", "展开或收起完整内容")
+        case .scrollExpansion:
+            return pick(
+                "Scroll the expanded contents — plain arrows when nothing is open",
+                "滚动展开的内容——没有展开时就和普通方向键一样"
+            )
         case .editInline:
             return pick(
                 "Edit the text right in the row — ⌘⏎ saves, ⎋ discards",

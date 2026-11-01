@@ -75,6 +75,10 @@ final class AppModel {
 
     var inlineEdit: InlineEdit?
 
+    /// The latest `⇧↑` / `⇧↓`, for the expanded row to act on. An event, not a
+    /// state: see ``ExpansionScroll/serial``.
+    private(set) var expansionScroll: ExpansionScroll?
+
     /// Per-tab cursor, query and expansion, so returning to a tab does not
     /// silently reset what you were doing there.
     ///
@@ -242,6 +246,7 @@ final class AppModel {
     /// Load persisted data and start watching the pasteboard.
     func start() async {
         await refresh()
+        await backUpIfDue()
         await backfillThumbnails()
         let monitor = PasteboardMonitor { [weak self] capture in
             guard let self else { return }
@@ -490,6 +495,10 @@ final class AppModel {
         case .promote(let id): Task { await promote(clipID: id) }
         case .edit(let id): beginEdit(id: id)
         case .editInline(let id): Task { await beginInlineEdit(id: id) }
+        case .scrollExpansion(let id, let lines):
+            expansionScroll = ExpansionScroll(
+                id: id, lines: lines, serial: (expansionScroll?.serial ?? 0) &+ 1
+            )
         case .openSettings: onOpenSettings?()
         case .switchTab: break // handled above, where both tabs' state is in hand
         case .dismiss: onDismiss?()
@@ -687,13 +696,6 @@ final class AppModel {
                 selection.selectedID = restored.first?.id ?? selection.selectedID
 
             case .pinChanged(let id, let tab, let wasPinned, let orderDate):
-                // Switch back to the tab the change happened on, so the row the
-                // user is about to see restored is actually on screen.
-                //
-                // Through the handover, not by assigning `selection.tab`: that
-                // shortcut skipped filing the outgoing tab's query and search
-                // mode away, so undoing a pin from the other tab dragged the
-                // current tab's search across with it and lost the target tab's.
                 switchForUndo(to: tab)
                 if tab.collectionID != nil {
                     try await store.restoreEntryPinState(
@@ -741,6 +743,35 @@ final class AppModel {
         let previous = selection.tab
         selection.tab = tab
         swapTabState(from: previous, to: tab)
+    }
+
+    // MARK: - Backups
+
+    /// When the newest snapshot was taken. Read live from the folder at launch
+    /// and after each backup, so the Settings line never shows a cached claim.
+    private(set) var lastBackup: Date?
+
+    /// Where snapshots live, for "Show in Finder".
+    var backupsURL: URL { store.locations.backupsURL }
+
+    /// Once a day, at launch. Failure is reported but never blocks the panel —
+    /// a clipboard manager that will not open because a backup failed has its
+    /// priorities backwards.
+    private func backUpIfDue() async {
+        lastBackup = await store.latestBackupDate()
+        guard BackupSchedule.isDue(latest: lastBackup, now: Date()) else { return }
+        await backUpNow(announce: false)
+    }
+
+    /// The Settings button, and the daily run.
+    func backUpNow(announce: Bool = true) async {
+        do {
+            try await store.backUp()
+            lastBackup = await store.latestBackupDate()
+            if announce { setStatus(strings.statusBackedUp) }
+        } catch {
+            setStatus(strings.errorBackup("\(error)"))
+        }
     }
 
     // MARK: - Inline editing

@@ -192,6 +192,7 @@ struct PanelRootView: View {
                     expandedImage: expandedImage,
                     focusedAction: focusedAction(for: clip.id),
                     edit: editHooks(for: clip.id),
+                    scroll: scrollRequest(for: clip.id),
                     onSelect: { model.handle(.selectID(clip.id)) },
                     onConfirm: {
                         model.handle(.selectID(clip.id))
@@ -235,6 +236,7 @@ struct PanelRootView: View {
                     isExpanded: model.selection.expandedID == prompt.id,
                     focusedAction: focusedAction(for: prompt.id),
                     edit: editHooks(for: prompt.id),
+                    scroll: scrollRequest(for: prompt.id),
                     onSelect: { model.handle(.selectID(prompt.id)) },
                     onConfirm: {
                         model.handle(.selectID(prompt.id))
@@ -255,6 +257,10 @@ struct PanelRootView: View {
     private func focusedAction(for id: String) -> RowAction? {
         guard model.selection.selectedID == id else { return nil }
         return model.selection.focus.focusedAction
+    }
+
+    private func scrollRequest(for id: String) -> ExpansionScroll? {
+        model.expansionScroll?.id == id ? model.expansionScroll : nil
     }
 
     /// The pencil goes through ``AppModel/handle(_:)`` like every other button,

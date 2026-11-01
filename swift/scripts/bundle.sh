@@ -39,7 +39,16 @@ fail() { printf '\033[1;31m✗\033[0m %s\n' "$*" >&2; exit 1; }
 PRODUCT_NAME="SwilClip"        # user-visible; the one line a rename touches
 TARGET_NAME="SwilClip"         # SPM product name; must match Package.swift
 BUNDLE_ID="com.supwilsoft.swilclip.swift"   # frozen — see the header
-VERSION="2.0.0"
+VERSION="2.1.0"
+# Which source a bundle came from. Two builds that both said "2.0.0" — one of
+# them already on schema v3 — made it impossible to tell what was installed.
+# CFBundleVersion gets the commit count (monotonic, numeric, what macOS wants);
+# the hash goes in its own key, marked -dirty when built from a working tree.
+BUILD_NUMBER="$(git -C "$REPO_ROOT" rev-list --count HEAD 2>/dev/null || echo 0)"
+BUILD_ID="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+if [[ -n "$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null)" ]]; then
+  BUILD_ID="$BUILD_ID-dirty"
+fi
 MIN_MACOS="14.0"
 
 RELEASE=0
@@ -74,7 +83,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleName</key>                  <string>$PRODUCT_NAME</string>
     <key>CFBundleDisplayName</key>           <string>$PRODUCT_NAME</string>
     <key>CFBundleIdentifier</key>            <string>$BUNDLE_ID</string>
-    <key>CFBundleVersion</key>               <string>$VERSION</string>
+    <key>CFBundleVersion</key>               <string>$BUILD_NUMBER</string>
+    <key>SwilClipBuild</key>                 <string>$BUILD_ID</string>
     <key>CFBundleShortVersionString</key>    <string>$VERSION</string>
     <key>CFBundleExecutable</key>            <string>$PRODUCT_NAME</string>
     <key>CFBundlePackageType</key>           <string>APPL</string>

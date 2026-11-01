@@ -155,8 +155,12 @@ public enum KeyMapping {
         let hasShift = modifiers.contains(.shift)
 
         switch keyCode {
-        case KeyCode.upArrow: return hasCommand ? .moveToFirst : .moveUp
-        case KeyCode.downArrow: return hasCommand ? .moveToLast : .moveDown
+        case KeyCode.upArrow:
+            if hasCommand { return .moveToFirst }
+            return hasShift ? .scrollExpansion(lines: -KeyMapping.expansionScrollStep) : .moveUp
+        case KeyCode.downArrow:
+            if hasCommand { return .moveToLast }
+            return hasShift ? .scrollExpansion(lines: KeyMapping.expansionScrollStep) : .moveDown
         // Left and right stay bare. `⌘←` is left free rather than aliased onto
         // the same step: the panel should not claim a chord it has no use for.
         case KeyCode.leftArrow: return hasCommand ? nil : .moveLeft
@@ -193,6 +197,10 @@ public enum KeyMapping {
             return .appendToQuery(typed)
         }
     }
+
+    /// Lines per `⇧↑` / `⇧↓`. Three is what a mouse-wheel notch moves in most
+    /// Mac apps, so the two ways of scrolling feel like one.
+    public static let expansionScrollStep = 3
 
     /// What a key means while the inline editor has the keyboard.
     ///

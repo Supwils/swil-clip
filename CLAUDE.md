@@ -67,7 +67,7 @@ open findings **一律不修**,其中 SC-07/SC-17/SC-18 已被 Swift 重写的�
 
 ## 3. 分层 —— 什么该放哪
 
-**`SwilClipCore` 不许 import AppKit。** 它是纯 Swift,全部测试无 GUI 可跑(220 个,约 0.15s)。
+**`SwilClipCore` 不许 import AppKit。** 它是纯 Swift,全部测试无 GUI 可跑(277 个,约 0.3s)。
 任何"不需要窗口就能决定"的逻辑都属于这里:键盘映射、选择状态机、面板定位几何、搜索、
 存储、加密、文案目录、快捷键说明书。app target 只做 `NSEvent` 拆包和窗口。
 
@@ -254,7 +254,13 @@ Core 的规则再漂亮,壳层漏接一根线就等于没有。**已经踩过的
   只是方向相反。
 
 **教训**:Core 有测试而壳层没有 —— 但 **2026-08-21 起壳层有了 `SwilClipUITests`**(见 §1),
-所以新的壳层规则应该写成测试而不是写进这一节。仍然只能靠手动冒烟发现的,是真正需要窗口
+所以新的壳层规则应该写成测试而不是写进这一节。**2026-11-01 起上面这些线由
+`ShellWiringTests` 守着**:`Wiring.unwired(in:)` 用反射找出所有 `on…` 回调,新加一个
+而没接线,测试直接失败,不用记得登记。新回调接在 `Wiring.connect` 或 `PanelController.init`。
+
+- **就地编辑(`⇧E`)是模态的。** `AppModel.inlineEdit` 非空时 `handle(_:)` 拒绝一切命令,
+  key monitor 只拦 `⌘⏎` / `⎋`(规则在 `KeyMapping.inlineEditCommand`),其余交给文本框;
+  输入法有 marked text 时连这两个也放行。草稿在面板关闭后保留。仍然只能靠手动冒烟发现的,是真正需要窗口
 服务器的那部分(菜单栏、sheet、热键注册)。改任何 `on*Change` 回调或菜单项时,手动走一遍。
 
 ---
@@ -263,7 +269,7 @@ Core 的规则再漂亮,壳层漏接一根线就等于没有。**已经踩过的
 
 - **不要自动 commit / push**(见 §0)。
 - `.githooks/pre-push` 每次 push 前跑两棵树的门禁:
-  - `swift/` → `swift test`(270 测试,无 GUI,约 0.2s;Core 与壳层两个套件)
+  - `swift/` → `swift test`(310 测试,无 GUI,约 0.4s;Core 与壳层两个套件)
   - `tauri/` → `pnpm prepush`(typecheck + lint + test + cargo test),让冻结的存档不会烂掉
 - 刻意**不含** release 构建与公证(重、平台相关),留给手动。紧急绕过:`git push --no-verify`。
 - 发布流程见 [docs/releasing.md](docs/releasing.md)。凭据在仓库根的 `.env.release`(已 gitignore)。

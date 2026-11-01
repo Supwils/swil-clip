@@ -40,6 +40,8 @@ struct LibraryRowView: View {
     /// See ``ClipRowView/focusedAction``.
     let focusedAction: RowAction?
     let edit: InlineEditHooks
+    /// The latest scroll request aimed at this row, if any.
+    let scroll: ExpansionScroll?
 
     let onSelect: () -> Void
     let onConfirm: () -> Void
@@ -168,14 +170,13 @@ struct LibraryRowView: View {
                 // fix into a form.
                 InlineEditor(text: draft, onSave: edit.save, onCancel: edit.cancel)
             } else {
-                ScrollView {
-                    Text(entry.body)
-                        .font(metrics.expandedFont)
-                        .foregroundStyle(Token.Foreground.primary)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(maxHeight: metrics.expansionMaxHeight)
+                ExpandedText(
+                    text: entry.body,
+                    font: metrics.expandedNSFont,
+                    color: NSColor(Token.Foreground.primary),
+                    maxHeight: metrics.expansionMaxHeight,
+                    scroll: scroll
+                )
 
                 HStack(spacing: 8 * metrics.scale) {
                     Text(strings.characterCount(entry.body.count))

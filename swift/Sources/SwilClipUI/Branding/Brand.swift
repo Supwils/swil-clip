@@ -38,6 +38,15 @@ enum Brand {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
     }()
 
-    /// `SwilClip 2.0.0`, for the settings footer.
-    static var nameAndVersion: String { "\(name) \(shortVersion)" }
+    /// The commit the bundle was built from, `-dirty` if from a working tree.
+    /// Written by `scripts/bundle.sh`; absent under `swift run` and the tests.
+    static let build: String? = {
+        Bundle.main.object(forInfoDictionaryKey: "SwilClipBuild") as? String
+    }()
+
+    /// `SwilClip 2.1.0 (a1b2c3d)`, for the settings footer. The hash is what
+    /// tells two builds of the same version apart.
+    static var nameAndVersion: String {
+        build.map { "\(name) \(shortVersion) (\($0))" } ?? "\(name) \(shortVersion)"
+    }
 }

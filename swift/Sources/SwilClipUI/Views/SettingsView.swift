@@ -42,6 +42,7 @@ struct SettingsView: View {
     @State private var loginItemState = LoginItem.state
     @State private var loginItemError: String?
     @State private var isTrustedForAutoPaste = AccessibilityPermission.isTrusted
+    @State private var isBackingUp = false
 
     private var strings: Strings { settings.strings }
     private var theme: Theme { settings.theme }
@@ -123,6 +124,7 @@ struct SettingsView: View {
         hotkeySection
         tabSwitchSection
         historySection
+        backupSection
         autoPasteSection
         launchAtLoginSection
     }
@@ -278,6 +280,29 @@ struct SettingsView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+        }
+    }
+
+    private var backupSection: some View {
+        section(strings.backupSection, hint: strings.backupHint) {
+            HStack(spacing: 10) {
+                Button(strings.backupNow) {
+                    Task {
+                        isBackingUp = true
+                        await model.backUpNow()
+                        isBackingUp = false
+                    }
+                }
+                .disabled(isBackingUp)
+                Button(strings.showInFinder) {
+                    NSWorkspace.shared.activateFileViewerSelecting([model.backupsURL])
+                }
+                Spacer(minLength: 0)
+                Text(strings.lastBackup(model.lastBackup))
+                    .font(Token.Typography.meta)
+                    .foregroundStyle(Token.Foreground.subtle)
+            }
+            .controlSize(.small)
         }
     }
 

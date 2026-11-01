@@ -478,3 +478,20 @@ struct InlineEditModelTests {
         #expect(temp.model.selection.expandedID == temp.model.inlineEdit?.id)
     }
 }
+
+@Suite("AppModel — backups")
+struct BackupModelTests {
+    @MainActor
+    @Test("backing up records when, and says so")
+    func backUpNow() async throws {
+        let temp = try TempModel()
+        await temp.model.recordForTesting(text: "worth keeping")
+        #expect(temp.model.lastBackup == nil)
+
+        await temp.model.backUpNow()
+        #expect(temp.model.lastBackup != nil)
+        #expect(temp.model.statusMessage == temp.settings.strings.statusBackedUp)
+        let names = try FileManager.default.contentsOfDirectory(atPath: temp.model.backupsURL.path)
+        #expect(names.count == 1)
+    }
+}

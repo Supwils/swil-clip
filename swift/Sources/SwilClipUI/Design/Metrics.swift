@@ -110,7 +110,11 @@ struct Metrics: Equatable, Sendable {
     var badgeFont: Font { font(8.5, weight: .medium).monospacedDigit() }
     var keycapFont: Font { .system(size: 9 * scale, weight: .medium, design: .monospaced) }
     var bodyFont: Font { font(12) }
-    var expandedFont: Font { font(11.5) }
+    var expandedFont: Font { font(Self.expandedPoints) }
+    /// The same size for AppKit, which the read-only expansion text is drawn
+    /// with. One constant, so the two cannot drift into different sizes.
+    var expandedNSFont: NSFont { .systemFont(ofSize: Self.expandedPoints * scale) }
+    private static let expandedPoints: CGFloat = 11.5
 
     var keycapMinSize: CGFloat { round(14 * scale) }
     var pinGlyph: CGFloat { 8 * scale }

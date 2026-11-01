@@ -60,7 +60,13 @@ constructible in a test with a temp store.
 Cost: an afternoon, almost all of it moving files. Payoff: the 4,618-line half of
 the codebase stops being unreachable.
 
-### 2.1.2 — the wiring manifest test
+### 2.1.2 — the wiring manifest test · **done** (2026-11-01)
+
+Landed as `Wiring` (`SwilClipUI/App/Wiring.swift`) and `ShellWiringTests`. The
+manifest is found by reflection rather than listed, so a seventh callback is
+covered without anyone enrolling it; a mutation run (deleting one wire) fails
+the suite. `AppDelegate`'s settings wiring moved into `Wiring.connect` so the
+test exercises the same code launch does.
 
 The four shipped wiring bugs share one shape: **a callback nobody set, or set to
 the wrong thing.** They compile and type-check. `AppDelegate` and
@@ -80,7 +86,10 @@ Then assert the routing itself: `.newItem` reaches `onEditItem(nil, _)`,
 `.openSettings` reaches `onOpenSettings`, `.confirm` reaches `onDismiss`. Three
 of the four shipped bugs die here.
 
-### 2.1.3 — the undo stack · **partly done** (2026-08-21)
+### 2.1.3 — the undo stack · **done** (2026-11-01)
+
+Push-after-success landed 2026-08-21. Model-level round trips now cover
+collection delete/move, pin, and the inline edit of a clip and of an entry.
 
 `AppModel.undoStack` is the largest untested data-loss surface left. The store
 half is covered (`ImageRestoreTests`, the pin round-trip); the stack that decides
@@ -98,7 +107,10 @@ Two things to do:
   leaves an entry whose undo is a silent no-op, spending the user's `u` on
   nothing. Cheap to fix, and the fix is obviously right.
 
-### 2.1.4 — `Settings` persistence round trip
+### 2.1.4 — `Settings` persistence round trip · **done** (2026-11-01)
+
+`SettingsPersistenceTests`: every preference written, then read by a fresh
+instance; plus the empty-domain defaults.
 
 Every preference is a `UserDefaults` key written by hand. A typo in a key name is
 invisible until a restart loses the setting. One table-driven test against a
@@ -117,9 +129,10 @@ question ① hard, because they are friction I hit every day.
 
 | Item | Note |
 |---|---|
-| Arrow-scroll inside an expanded row | Long prompts expand past the panel and then can only be read by opening the editor. The one that annoys me most. |
+| ~~Arrow-scroll inside an expanded row~~ | **Done 2026-11-01.** `⇧↑` / `⇧↓` scroll the open row three lines at a time and fall back to plain arrows when nothing is open. Plain arrows were rejected: making them scroll first would put scroll offset — view state — into the reducer. |
 | ~~`⇥` between Title and Prompt in the editor~~ | **Done 2026-08-21.** The collection picker made a third field, and a control the keyboard cannot reach is a control that does not exist. |
-| `e` opens the editor on the Prompts tab | Today `e` expands on both tabs. On Prompts, "edit" is the more useful meaning — **but this changes a shipped key, so it needs a decision, not a patch.** |
+| ~~`e` opens the editor on the Prompts tab~~ | **Closed 2026-11-01, not by changing `e`.** `⇧E` edits any text row in place, on both tabs, so the shipped key keeps its meaning. |
+| ~~Built-in backups~~ | **Done 2026-11-01.** Five hand-made `SwilClipSwift.backup-*` folders said the need was real. `VACUUM INTO` plus the sidecars, daily at launch, newest seven kept, and a button in Settings. |
 
 ---
 

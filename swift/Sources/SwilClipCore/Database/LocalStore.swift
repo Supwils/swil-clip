@@ -27,7 +27,8 @@ import Foundation
 public actor LocalStore {
     let database: Database
     let cipher: FieldCipher
-    let locations: StorageLocations
+    /// Immutable and `Sendable`, so readable without hopping onto the actor.
+    public nonisolated let locations: StorageLocations
 
     public init(
         locations: StorageLocations,

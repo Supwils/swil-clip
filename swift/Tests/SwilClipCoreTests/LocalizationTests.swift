@@ -130,7 +130,8 @@ struct ShortcutReferenceTests {
             .moveUp, .moveDown, .moveToFirst, .moveToLast,
             .beginSearch, .appendToQuery("a"), .deleteQueryCharacter,
             .switchTab, .confirm, .deleteItem, .togglePin, .toggleExpand,
-            .undo, .newItem, .promoteToPrompt, .editInline, .dismiss, .selectID("x"),
+            .undo, .newItem, .promoteToPrompt, .editInline, .scrollExpansion(lines: 3),
+            .dismiss, .selectID("x"),
         ]
         let listed = ShortcutReference.documentedActions
         for command in commands {
